@@ -1,4 +1,4 @@
-# SkillBridge India 🎯
+# 🎓 SkillBridge
 
 > *Bridging the gap between talent and opportunity in India's evolving job market*
 
