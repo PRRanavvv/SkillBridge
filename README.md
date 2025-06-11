@@ -143,6 +143,6 @@ MIT License - We believe in open innovation and shared growth.
 **Mind Over Mattress**
 *Building solutions while the world sleeps*
 
-Made with ❤️ for India's workforce
+Made with ☕ for India's workforce
 
 </div>
