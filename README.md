@@ -4,9 +4,7 @@
 
 <div align="center">
 
-![Status](https://img.shields.io/badge/Status-In%20Development-orange)
-![Team](https://img.shields.io/badge/Team-Mind%20Over%20Mattress-blue)
-![Timeline](https://img.shields.io/badge/Timeline-5%20Months-green)
+Mind Over Mattress
 
 </div>
 
