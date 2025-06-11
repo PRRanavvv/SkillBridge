@@ -94,29 +94,9 @@ SkillBridge isn't just another job portal. It's an intelligent ecosystem that un
 - **Gamification Engine** - Achievement systems that make learning engaging
 - **Rural Network** - Connecting tier-2/3 cities with quality opportunities
 
-## 📅 Development Timeline
-
-```mermaid
-gantt
-    title SkillBridge Development Roadmap
-    dateFormat YYYY-MM-DD
-    section Foundation
-    Planning & Architecture    :done, planning, 2024-01-01, 2024-01-15
-    Tech Stack Setup          :active, setup, 2024-01-15, 2024-01-30
-    section Core Development
-    AI Assessment Engine      :ai-engine, 2024-02-01, 2024-02-28
-    Job Matching Algorithm    :matching, 2024-03-01, 2024-03-15
-    section Advanced Features
-    Computer Vision           :cv, 2024-03-15, 2024-04-15
-    Blockchain Integration    :blockchain, 2024-04-01, 2024-04-30
-    section Launch Prep
-    Testing & Optimization    :testing, 2024-05-01, 2024-05-20
-    Documentation & Launch    :launch, 2024-05-20, 2024-05-31
-```
-
 ## 🎪 Current Status
 
-**Phase:** Foundation & Planning ✨
+**Phase:** Foundations & Planning ✨
 
 We're at the exciting "everything is possible" stage where we have:
 - ✅ Comprehensive feature specification
@@ -164,7 +144,5 @@ MIT License - We believe in open innovation and shared growth.
 *Building solutions while the world sleeps*
 
 Made with ❤️ for India's workforce
-
-[📧 Contact](mailto:contact@mindovermattress.dev) • [🐦 Twitter](https://twitter.com/mindovermattress) • [💼 LinkedIn](https://linkedin.com/company/mindovermattress)
 
 </div>
