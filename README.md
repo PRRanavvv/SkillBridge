@@ -67,19 +67,13 @@ SkillBridge isn't just another job portal. It's an intelligent ecosystem that un
 
 ## 🛠️ Tech Stack
 
-<div align="center">
-
 | Frontend | Backend | AI/ML | Database | Blockchain |
 |----------|---------|-------|----------|------------|
 | React.js | Python | TensorFlow | PostgreSQL | Ethereum |
 | TypeScript | FastAPI | OpenAI GPT | Redis | Solidity |
 | Tailwind CSS | Django | Computer Vision | MongoDB | Web3.js |
 
-</div>
-
 ## 📈 The Problem We're Solving
-
-<div align="center">
 
 | Challenge | Impact | Our Solution |
 |-----------|---------|--------------|
@@ -87,8 +81,6 @@ SkillBridge isn't just another job portal. It's an intelligent ecosystem that un
 | **Youth Unemployment** | Rising among graduates | Personalized skill development |
 | **Rural Job Access** | Limited opportunities | Dedicated rural employment network |
 | **Biased Hiring** | Unfair selection processes | Algorithmic fairness & transparency |
-
-</div>
 
 ## 🎯 Key Features
 
