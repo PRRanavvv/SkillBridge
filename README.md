@@ -1,4 +1,4 @@
-# SkillBridge India 🚀
+# SkillBridge 🚀
 
 *Making job hunting less terrible, one skill at a time*
 
