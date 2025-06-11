@@ -4,7 +4,7 @@
 
 <div align="center">
 
-## Mind Over Mattress
+## Team - Mind Over Mattress
 
 </div>
 
