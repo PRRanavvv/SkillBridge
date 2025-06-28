@@ -12,7 +12,7 @@
 
 ## 🌟 The Vision
 
-We're **Mind Over Mattress** - four university friends who noticed something broken in India's job ecosystem. While 65% of the workforce faces skill-job mismatches and unemployment among educated youth continues to rise, we decided to build a solution instead of just talking about the problem.
+We're **Mind Over Mattress** - three university friends who noticed something broken in India's job ecosystem. While 65% of the workforce faces skill-job mismatches and unemployment among educated youth continues to rise, we decided to build a solution instead of just talking about the problem.
 
 SkillBridge isn't just another job portal. It's an intelligent ecosystem that understands skills, matches talent meaningfully, and creates personalized growth paths for every user.
 
@@ -40,25 +40,20 @@ SkillBridge isn't just another job portal. It's an intelligent ecosystem that un
 <tr>
 <td align="center">
 <strong>Pranav Rana</strong><br>
-<em>Lead AI Engineer</em><br>
-<small>Makes machines think, sometimes better than us</small>
+<em>Lead AI Engineer & Frontend Development</em><br>
+<small>Makes machines think and builds beautiful interfaces</small>
 </td>
 <td align="center">
 <strong>Pratyush Rawat</strong><br>
-<em>ML Research Specialist</em><br>
-<small>Turns data into insights and coffee into code</small>
+<em>ML Research Specialist & Backend Development</em><br>
+<small>Turns data into insights and builds robust systems</small>
 </td>
 </tr>
 <tr>
-<td align="center">
+<td align="center" colspan="2">
 <strong>Pratyush Shankar</strong><br>
-<em>Blockchain & API Development</em><br>
-<small>Builds the pipes that connect everything securely</small>
-</td>
-<td align="center">
-<strong>Nihal</strong><br>
-<em>Full Stack & Integration</em><br>
-<small>Keeps everything running while we break stuff</small>
+<em>Blockchain & Full Stack Integration</em><br>
+<small>Builds the pipes that connect everything securely and keeps it all running</small>
 </td>
 </tr>
 </table>
