@@ -6,6 +6,7 @@
 
 [![Made with ❤️ for India](https://img.shields.io/badge/Made%20with-%E2%9D%A4%EF%B8%8F-red?style=for-the-badge)](#)
 [![Status](https://img.shields.io/badge/Status-In%20Development-yellow?style=for-the-badge)](#)
+[![Team](https://img.shields.io/badge/Team-Mind%20Over%20Mattress-blue?style=for-the-badge)](#)
 
 ## Team - Mind Over Mattress
 
@@ -42,17 +43,27 @@ SkillBridge isn't just another job portal. It's an intelligent ecosystem that un
 
 ## 👨‍💻 The Team
 
-**Pranav Rana**  
-*Lead AI Engineer & Frontend Development*  
-Makes machines think and builds beautiful interfaces
-
-**Pratyush Rawat**  
-*ML Research Specialist & Backend Development*  
-Turns data into insights and builds robust systems
-
-**Pratyush Shankar**  
-*Blockchain & Full Stack Integration*  
-Builds the pipes that connect everything securely and keeps it all running
+<table>
+<tr>
+<td align="center">
+<strong>Pranav Rana</strong><br>
+<em>Lead AI Engineer & Frontend Development</em><br>
+<small>Makes machines think and builds beautiful interfaces</small>
+</td>
+<td align="center">
+<strong>Pratyush Rawat</strong><br>
+<em>ML Research Specialist & Backend Development</em><br>
+<small>Turns data into insights and builds robust systems</small>
+</td>
+</tr>
+<tr>
+<td align="center" colspan="2">
+<strong>Pratyush Shankar</strong><br>
+<em>Blockchain & Full Stack Integration</em><br>
+<small>Builds the pipes that connect everything securely and keeps it all running</small>
+</td>
+</tr>
+</table>
 
 ## 🛠️ Tech Stack
 
