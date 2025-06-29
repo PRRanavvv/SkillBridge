@@ -37,7 +37,7 @@ SkillBridge isn't just another job portal. It's an intelligent ecosystem that un
 - Computer vision for practical skill demos
 - Gamified learning experiences
 - Real-time video interview platform
-- **Voice-based assessments** for accessibility
+- **Voice-based assessments** for accessibility *(Soon!)*
 - **Offline mode capabilities** for rural areas *(Soon!)*
 
 ## 👨‍💻 The Team
