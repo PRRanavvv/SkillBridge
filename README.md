@@ -25,7 +25,7 @@ SkillBridge isn't just another job portal. It's an intelligent ecosystem that un
 - Dynamic skill assessments that adapt to user performance
 - Semantic job matching beyond keyword hunting
 - Personalized learning paths powered by machine learning
-- **AI Chatbot Assistant** *(Coming Soon!)* - 24/7 career guidance and instant query resolution
+- **AI Chatbot Assistant** - 24/7 career guidance and instant query resolution *(Coming Soon!)*
 
 ### 🌐 **Built for India**
 - Native support for 22 Indian languages *(Soon!)*
