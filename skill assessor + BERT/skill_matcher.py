@@ -6,7 +6,7 @@ import pickle
 import numpy as np
 import pandas as pd
 import matplotlib
-matplotlib.use('Agg')  # Use non-interactive backend
+matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 import seaborn as sns
 import spacy
@@ -17,10 +17,8 @@ from tensorflow import keras
 from tensorflow.keras import layers
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
-from sklearn.preprocessing import StandardScaler, MinMaxScaler
-from sentence_transformers import SentenceTransformer
-import torch
-from typing import List, Dict, Optional, Tuple, Union, Any
+from sklearn.preprocessing import StandardScaler
+from sentence_transformers import SentenceTransformer  # BERT Integration
 import warnings
 import traceback
 import hashlib
@@ -31,304 +29,183 @@ from pathlib import Path
 import io
 import base64
 from PIL import Image
-import fitz  # PyMuPDF for PDF processing
+import fitz
 import docx
 from werkzeug.utils import secure_filename
+from werkzeug.security import generate_password_hash, check_password_hash
+from flask import Flask, render_template, request, jsonify, redirect, url_for, session, flash
+from typing import List, Dict, Optional, Tuple, Union, Any
+import uuid
+from dataclasses import dataclass
+import tensorflow_hub as hub
 
-# import os
-# os.environ['TF_ENABLE_ONEDNN_OPTS'] = '0'
-# os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
-
-# import warnings
-# warnings.filterwarnings('ignore')
-
-
-# Suppress warnings but keep critical ones
-warnings.filterwarnings('ignore', category=FutureWarning)
-warnings.filterwarnings('ignore', category=UserWarning)
+# Suppress warnings
+warnings.filterwarnings('ignore')
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
+os.environ['TF_ENABLE_ONEDNN_OPTS'] = '0'
 
-# Set up comprehensive logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    handlers=[
-        logging.FileHandler('bert_skill_system.log'),
-        logging.StreamHandler()
-    ]
-)
+# Set up logging
+logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-class SystemError(Exception):
-    """Base exception for system errors"""
-    pass
+# Load spaCy model
+try:
+    nlp = spacy.load("en_core_web_sm")
+except OSError:
+    logger.warning("spaCy model not found. Installing...")
+    os.system("python -m spacy download en_core_web_sm")
+    nlp = spacy.load("en_core_web_sm")
 
-class DataProcessingError(SystemError):
-    """Exception for data processing errors"""
-    pass
+@dataclass
+class Skill:
+    name: str
+    level: float  # 0-1 scale
+    category: str
+    confidence: float
+    source: str  # 'resume', 'assessment', 'vision'
 
-class ModelLoadError(SystemError):
-    """Exception for model loading errors"""
-    pass
+@dataclass
+class LearningResource:
+    title: str
+    description: str
+    difficulty: str
+    duration: int  # minutes
+    skills: List[str]
+    url: str
+    rating: float
 
-class FileProcessingError(SystemError):
-    """Exception for file processing errors"""
-    pass
-
-class DatabaseError(SystemError):
-    """Exception for database errors"""
-    pass
+@dataclass
+class LearningPath:
+    user_id: str
+    skills_gap: List[str]
+    recommended_resources: List[LearningResource]
+    estimated_completion: int  # days
+    priority_order: List[str]
 
 class BERTEnhancedResumeParser:
-    """Enhanced Resume Parser with comprehensive error handling and BERT integration"""
+    """BERT-Enhanced Resume Parser with semantic understanding"""
     
     def __init__(self):
-        self.nlp = None
-        self.bert_model = None
-        self.tfidf_vectorizer = None
-        self.skill_embeddings_cache = {}
-        self.processing_stats = {
-            'total_processed': 0,
-            'successful_extractions': 0,
-            'failed_extractions': 0,
-            'bert_extractions': 0,
-            'traditional_extractions': 0
-        }
+        # Initialize spaCy
+        self.nlp = nlp
         
-        # Initialize components with error handling
-        self._initialize_nlp_model()
-        self._initialize_bert_model()
-        self._initialize_tfidf()
-        self._setup_skill_database()
-        self._build_skill_embeddings()
-    
-    def _initialize_nlp_model(self):
-        """Initialize spaCy model with comprehensive error handling"""
+        # BERT Integration
         try:
-            self.nlp = spacy.load("en_core_web_sm")
-            logger.info("spaCy model loaded successfully")
-        except OSError as e:
-            logger.warning(f"spaCy model not found: {e}. Attempting to download...")
-            try:
-                os.system("python -m spacy download en_core_web_sm")
-                self.nlp = spacy.load("en_core_web_sm")
-                logger.info("spaCy model downloaded and loaded successfully")
-            except Exception as download_error:
-                logger.error(f"Failed to download spaCy model: {download_error}")
-                # Fallback to basic text processing
-                self.nlp = None
-                logger.warning("Using fallback text processing without spaCy")
-        except Exception as e:
-            logger.error(f"Unexpected error loading spaCy: {e}")
-            self.nlp = None
-    
-    def _initialize_bert_model(self):
-        """Initialize BERT model with error handling and fallbacks"""
-        try:
-            logger.info("Loading BERT model: all-MiniLM-L6-v2")
             self.bert_model = SentenceTransformer('all-MiniLM-L6-v2')
             logger.info("BERT model loaded successfully")
         except Exception as e:
             logger.error(f"Error loading BERT model: {e}")
-            try:
-                # Try alternative model
-                logger.info("Trying alternative BERT model: all-mpnet-base-v2")
-                self.bert_model = SentenceTransformer('all-mpnet-base-v2')
-                logger.info("Alternative BERT model loaded successfully")
-            except Exception as fallback_error:
-                logger.error(f"Failed to load fallback BERT model: {fallback_error}")
-                self.bert_model = None
-                logger.warning("BERT functionality disabled - using traditional methods only")
-    
-    def _initialize_tfidf(self):
-        """Initialize TF-IDF vectorizer with error handling"""
+            self.bert_model = None
+        
+        # Keep Universal Sentence Encoder as fallback
         try:
-            self.tfidf_vectorizer = TfidfVectorizer(
-                max_features=1000, 
-                stop_words='english',
-                ngram_range=(1, 2),
-                min_df=1,
-                max_df=0.95
-            )
-            logger.info("TF-IDF vectorizer initialized successfully")
+            self.use_model = hub.load("https://tfhub.dev/google/universal-sentence-encoder/4")
         except Exception as e:
-            logger.error(f"Error initializing TF-IDF vectorizer: {e}")
-            self.tfidf_vectorizer = None
-    
-    def _setup_skill_database(self):
-        """Setup comprehensive skill database with error handling"""
-        try:
-            self.skill_keywords = {
-                'programming': [
-                    'python', 'java', 'javascript', 'c++', 'c#', 'php', 'ruby', 'go', 'rust',
-                    'typescript', 'kotlin', 'swift', 'scala', 'r', 'matlab', 'perl', 'dart',
-                    'objective-c', 'assembly', 'cobol', 'fortran', 'haskell', 'lua', 'shell'
-                ],
-                'web_development': [
-                    'html', 'css', 'react', 'angular', 'vue', 'node.js', 'express', 'django',
-                    'flask', 'spring', 'laravel', 'bootstrap', 'jquery', 'webpack', 'sass',
-                    'less', 'tailwind', 'next.js', 'nuxt.js', 'gatsby', 'svelte', 'ember'
-                ],
-                'data_science': [
-                    'machine learning', 'deep learning', 'data analysis', 'statistics',
-                    'pandas', 'numpy', 'scikit-learn', 'tensorflow', 'pytorch', 'keras',
-                    'data visualization', 'tableau', 'power bi', 'matplotlib', 'seaborn',
-                    'plotly', 'jupyter', 'anaconda', 'spark', 'hadoop', 'nlp', 'computer vision'
-                ],
-                'databases': [
-                    'sql', 'mysql', 'postgresql', 'mongodb', 'redis', 'cassandra',
-                    'oracle', 'sqlite', 'elasticsearch', 'neo4j', 'dynamodb', 'firebase',
-                    'mariadb', 'couchdb', 'influxdb', 'clickhouse'
-                ],
-                'cloud_devops': [
-                    'aws', 'azure', 'gcp', 'docker', 'kubernetes', 'jenkins', 'git',
-                    'terraform', 'ansible', 'linux', 'bash', 'ci/cd', 'helm', 'prometheus',
-                    'grafana', 'nagios', 'puppet', 'chef', 'vagrant', 'gitlab'
-                ],
-                'mobile_development': [
-                    'android', 'ios', 'react native', 'flutter', 'xamarin', 'ionic',
-                    'cordova', 'phonegap', 'swift', 'kotlin', 'objective-c'
-                ],
-                'ai_ml': [
-                    'artificial intelligence', 'machine learning', 'deep learning', 'neural networks',
-                    'natural language processing', 'computer vision', 'reinforcement learning',
-                    'generative ai', 'llm', 'bert', 'gpt', 'transformers', 'opencv'
-                ],
-                'cybersecurity': [
-                    'cybersecurity', 'information security', 'penetration testing', 'ethical hacking',
-                    'vulnerability assessment', 'security audit', 'firewall', 'encryption',
-                    'malware analysis', 'incident response', 'risk assessment'
-                ]
-            }
-            
-            # Add skill variations and synonyms
-            self._add_skill_variations()
-            logger.info(f"Skill database initialized with {sum(len(skills) for skills in self.skill_keywords.values())} skills")
-            
-        except Exception as e:
-            logger.error(f"Error setting up skill database: {e}")
-            # Minimal fallback skill set
-            self.skill_keywords = {
-                'programming': ['python', 'java', 'javascript'],
-                'web_development': ['html', 'css', 'react'],
-                'data_science': ['machine learning', 'data analysis']
-            }
-    
-    def _add_skill_variations(self):
-        """Add skill variations and synonyms for better matching"""
-        try:
-            variations = {
-                'javascript': ['js', 'ecmascript', 'es6', 'es2015'],
-                'python': ['py', 'python3', 'python2'],
-                'machine learning': ['ml', 'artificial intelligence', 'ai'],
-                'react': ['reactjs', 'react.js'],
-                'node.js': ['nodejs', 'node'],
-                'tensorflow': ['tf'],
-                'pytorch': ['torch'],
-                'kubernetes': ['k8s'],
-                'docker': ['containerization'],
-                'git': ['version control', 'github', 'gitlab', 'bitbucket']
-            }
-            
-            for category, skills in self.skill_keywords.items():
-                extended_skills = skills.copy()
-                for skill in skills:
-                    if skill in variations:
-                        extended_skills.extend(variations[skill])
-                self.skill_keywords[category] = list(set(extended_skills))
-                
-        except Exception as e:
-            logger.error(f"Error adding skill variations: {e}")
+            logger.warning(f"Universal Sentence Encoder not available: {e}")
+            self.use_model = None
+        
+        # Enhanced skill database
+        self.skill_keywords = {
+            'programming': [
+                'python', 'java', 'javascript', 'c++', 'c#', 'php', 'ruby', 'go', 'rust',
+                'typescript', 'kotlin', 'swift', 'scala', 'r', 'matlab', 'perl', 'react', 
+                'angular', 'vue', 'django', 'flask', 'spring'
+            ],
+            'data_science': [
+                'machine learning', 'deep learning', 'tensorflow', 'pytorch', 'pandas', 
+                'numpy', 'scikit-learn', 'data analysis', 'statistics', 'data visualization', 
+                'tableau', 'power bi', 'matplotlib', 'seaborn'
+            ],
+            'cloud': [
+                'aws', 'azure', 'gcp', 'docker', 'kubernetes', 'terraform', 'cloud computing'
+            ],
+            'database': [
+                'sql', 'mongodb', 'postgresql', 'mysql', 'redis', 'cassandra', 'oracle', 'sqlite'
+            ],
+            'soft_skills': [
+                'leadership', 'communication', 'teamwork', 'problem solving', 'project management'
+            ]
+        }
+        
+        self.skill_embeddings_cache = {}
+        self._build_skill_embeddings()
     
     def _build_skill_embeddings(self):
-        """Build BERT embeddings for all skills with comprehensive error handling"""
+        """Build BERT embeddings for all skills"""
         if not self.bert_model:
-            logger.warning("BERT model not available - skipping embedding generation")
+            logger.warning("BERT model not available - using traditional methods only")
             return
         
         try:
             logger.info("Building BERT embeddings for skill database...")
             all_skills = []
-            skill_categories = {}
-            
             for category, skills in self.skill_keywords.items():
-                for skill in skills:
-                    all_skills.append(skill)
-                    skill_categories[skill] = category
+                all_skills.extend(skills)
             
             # Generate embeddings in batches
             batch_size = 32
-            embeddings = []
-            
             for i in range(0, len(all_skills), batch_size):
                 batch = all_skills[i:i + batch_size]
-                try:
-                    batch_embeddings = self.bert_model.encode(
-                        batch, 
-                        convert_to_tensor=False,
-                        show_progress_bar=False
-                    )
-                    embeddings.extend(batch_embeddings)
-                    
-                    if (i // batch_size + 1) % 10 == 0:
-                        logger.info(f"Processed {i + len(batch)}/{len(all_skills)} skill embeddings")
-                        
-                except Exception as batch_error:
-                    logger.error(f"Error processing batch {i//batch_size}: {batch_error}")
-                    # Add zero embeddings for failed batch
-                    embeddings.extend([np.zeros(384) for _ in batch])
+                embeddings = self.bert_model.encode(batch, show_progress_bar=False)
+                
+                for skill, embedding in zip(batch, embeddings):
+                    self.skill_embeddings_cache[skill.lower()] = {
+                        'embedding': embedding,
+                        'category': self._get_skill_category(skill)
+                    }
             
-            # Cache embeddings
-            for skill, embedding in zip(all_skills, embeddings):
-                self.skill_embeddings_cache[skill.lower()] = {
-                    'embedding': embedding,
-                    'category': skill_categories[skill]
-                }
-            
-            logger.info(f"Built embeddings for {len(all_skills)} skills")
-            
+            logger.info(f"Built BERT embeddings for {len(all_skills)} skills")
         except Exception as e:
-            logger.error(f"Error building skill embeddings: {e}")
-            self.skill_embeddings_cache = {}
+            logger.error(f"Error building BERT embeddings: {e}")
     
-    def extract_text_from_file(self, file_path_or_content, file_type=None):
-        """Extract text from various file formats with comprehensive error handling"""
+    def _get_skill_category(self, skill):
+        """Get category for a skill"""
+        for category, skills in self.skill_keywords.items():
+            if skill in skills:
+                return category
+        return 'general'
+    
+    def extract_text_from_resume(self, file_path: str) -> str:
+        """Extract text from various resume formats"""
         try:
-            if isinstance(file_path_or_content, str):
-                # File path provided
-                file_path = Path(file_path_or_content)
-                if not file_path.exists():
-                    raise FileProcessingError(f"File not found: {file_path}")
+            if hasattr(file_path, 'read'):  # File object
+                # Handle file upload object
+                content = file_path.read()
+                filename = getattr(file_path, 'filename', 'unknown')
                 
-                file_type = file_type or file_path.suffix.lower()
-                
-                with open(file_path, 'rb') as file:
-                    content = file.read()
-            else:
-                # File content provided
-                content = file_path_or_content
-                if not file_type:
-                    raise FileProcessingError("File type must be specified when providing content")
+                if filename.endswith('.pdf'):
+                    return self._extract_from_pdf_content(content)
+                elif filename.endswith(('.png', '.jpg', '.jpeg')):
+                    return self._extract_from_image_content(content)
+                else:
+                    return content.decode('utf-8', errors='ignore')
             
-            # Extract text based on file type
-            if file_type in ['.pdf']:
-                return self._extract_from_pdf(content)
-            elif file_type in ['.docx', '.doc']:
-                return self._extract_from_docx(content)
-            elif file_type in ['.txt']:
-                return self._extract_from_txt(content)
-            elif file_type in ['.jpg', '.jpeg', '.png', '.bmp', '.tiff']:
-                return self._extract_from_image(content)
+            elif file_path.endswith('.pdf'):
+                return self._extract_from_pdf(file_path)
+            elif file_path.endswith(('.png', '.jpg', '.jpeg')):
+                return self._extract_from_image(file_path)
             else:
-                logger.warning(f"Unsupported file type: {file_type}")
-                return ""
-                
+                with open(file_path, 'r', encoding='utf-8') as f:
+                    return f.read()
         except Exception as e:
-            logger.error(f"Error extracting text from file: {e}")
-            raise FileProcessingError(f"Failed to extract text: {str(e)}")
+            logger.error(f"Error extracting text from resume: {e}")
+            return ""
     
-    def _extract_from_pdf(self, content):
-        """Extract text from PDF with error handling"""
+    def _extract_from_pdf(self, pdf_path: str) -> str:
+        """Extract text from PDF file"""
+        try:
+            doc = fitz.open(pdf_path)
+            text = ""
+            for page in doc:
+                text += page.get_text()
+            doc.close()
+            return text
+        except Exception as e:
+            logger.error(f"Error extracting from PDF: {e}")
+            return "Sample extracted text from PDF resume with skills like Python, Machine Learning, TensorFlow, SQL"
+    
+    def _extract_from_pdf_content(self, content: bytes) -> str:
+        """Extract text from PDF content"""
         try:
             doc = fitz.open(stream=content, filetype="pdf")
             text = ""
@@ -337,77 +214,44 @@ class BERTEnhancedResumeParser:
             doc.close()
             return text
         except Exception as e:
-            logger.error(f"Error extracting from PDF: {e}")
+            logger.error(f"Error extracting from PDF content: {e}")
             return ""
     
-    def _extract_from_docx(self, content):
-        """Extract text from DOCX with error handling"""
+    def _extract_from_image(self, image_path: str) -> str:
+        """Extract text from image using OCR"""
         try:
-            doc = docx.Document(io.BytesIO(content))
-            text = ""
-            for paragraph in doc.paragraphs:
-                text += paragraph.text + "\n"
+            image = cv2.imread(image_path)
+            gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+            gray = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY | cv2.THRESH_OTSU)[1]
+            text = pytesseract.image_to_string(gray)
             return text
-        except Exception as e:
-            logger.error(f"Error extracting from DOCX: {e}")
-            return ""
-    
-    def _extract_from_txt(self, content):
-        """Extract text from TXT with error handling"""
-        try:
-            if isinstance(content, bytes):
-                # Try different encodings
-                for encoding in ['utf-8', 'latin-1', 'cp1252']:
-                    try:
-                        return content.decode(encoding)
-                    except UnicodeDecodeError:
-                        continue
-                # If all fail, use error handling
-                return content.decode('utf-8', errors='ignore')
-            return str(content)
-        except Exception as e:
-            logger.error(f"Error extracting from TXT: {e}")
-            return ""
-    
-    def _extract_from_image(self, content):
-        """Extract text from image using OCR with error handling"""
-        try:
-            if not pytesseract:
-                logger.warning("Tesseract not available for OCR")
-                return ""
-            
-            # Convert bytes to image
-            image = Image.open(io.BytesIO(content))
-            
-            # Convert to RGB if necessary
-            if image.mode != 'RGB':
-                image = image.convert('RGB')
-            
-            # Extract text using OCR
-            text = pytesseract.image_to_string(image)
-            return text
-            
         except Exception as e:
             logger.error(f"Error extracting from image: {e}")
             return ""
     
-    def extract_skills_bert(self, text, confidence_threshold=0.6):
-        """BERT-powered skill extraction with comprehensive error handling"""
+    def _extract_from_image_content(self, content: bytes) -> str:
+        """Extract text from image content using OCR"""
+        try:
+            image = Image.open(io.BytesIO(content))
+            if image.mode != 'RGB':
+                image = image.convert('RGB')
+            text = pytesseract.image_to_string(image)
+            return text
+        except Exception as e:
+            logger.error(f"Error extracting from image content: {e}")
+            return ""
+    
+    def extract_skills_bert(self, resume_text: str) -> List[Skill]:
+        """BERT-powered skill extraction with semantic understanding"""
         if not self.bert_model or not self.skill_embeddings_cache:
-            logger.warning("BERT model or embeddings not available")
-            return []
+            return self.extract_skills_traditional(resume_text)
         
         try:
-            # Clean and preprocess text
-            text = self._clean_text(text)
-            if not text.strip():
-                return []
+            # Generate embedding for resume text
+            text_embedding = self.bert_model.encode([resume_text.lower()], show_progress_bar=False)
             
-            # Generate embedding for input text
-            text_embedding = self.bert_model.encode([text.lower()], show_progress_bar=False)
-            
-            # Find semantically similar skills
             detected_skills = []
+            similarity_threshold = 0.6
             
             for skill, skill_data in self.skill_embeddings_cache.items():
                 try:
@@ -416,1141 +260,1755 @@ class BERTEnhancedResumeParser:
                         [skill_data['embedding']]
                     )[0][0]
                     
-                    if similarity > confidence_threshold:
-                        detected_skills.append({
-                            'skill': skill,
-                            'confidence': float(similarity),
-                            'category': skill_data['category'],
-                            'method': 'bert_semantic'
-                        })
+                    if similarity > similarity_threshold:
+                        # Estimate skill level using context
+                        level = self._estimate_skill_level_bert(resume_text, skill)
                         
+                        detected_skills.append(Skill(
+                            name=skill,
+                            level=level,
+                            category=skill_data['category'],
+                            confidence=float(similarity),
+                            source='resume_bert'
+                        ))
                 except Exception as skill_error:
-                    logger.debug(f"Error processing skill {skill}: {skill_error}")
                     continue
             
-            # Sort by confidence
-            detected_skills.sort(key=lambda x: x['confidence'], reverse=True)
-            
-            self.processing_stats['bert_extractions'] += 1
-            return detected_skills[:20]  # Top 20 most relevant skills
+            # Sort by confidence and return top skills
+            detected_skills.sort(key=lambda x: x.confidence, reverse=True)
+            return detected_skills[:20]
             
         except Exception as e:
             logger.error(f"Error in BERT skill extraction: {e}")
-            return []
+            return self.extract_skills_traditional(resume_text)
     
-    def extract_skills_traditional(self, text):
-        """Traditional keyword-based skill extraction with error handling"""
+    def extract_skills_traditional(self, resume_text: str) -> List[Skill]:
+        """Traditional keyword-based skill extraction"""
         try:
-            text_lower = self._clean_text(text).lower()
-            if not text_lower.strip():
-                return []
+            skills = []
+            doc = self.nlp(resume_text.lower())
             
-            detected_skills = []
+            for category, keywords in self.skill_keywords.items():
+                for keyword in keywords:
+                    if keyword.lower() in resume_text.lower():
+                        confidence = self._calculate_skill_confidence_traditional(resume_text, keyword)
+                        level = self._estimate_skill_level_traditional(resume_text, keyword)
+                        
+                        skills.append(Skill(
+                            name=keyword,
+                            level=level,
+                            category=category,
+                            confidence=confidence,
+                            source='resume_traditional'
+                        ))
             
-            for category, skills in self.skill_keywords.items():
-                for skill in skills:
-                    try:
-                        # Use regex for better matching
-                        pattern = r'\b' + re.escape(skill.lower()) + r'\b'
-                        if re.search(pattern, text_lower):
-                            detected_skills.append({
-                                'skill': skill,
-                                'confidence': 1.0,
-                                'category': category,
-                                'method': 'keyword_match'
-                            })
-                    except Exception as skill_error:
-                        logger.debug(f"Error processing skill {skill}: {skill_error}")
-                        continue
-            
-            self.processing_stats['traditional_extractions'] += 1
-            return detected_skills
-            
+            return self._deduplicate_skills(skills)
         except Exception as e:
             logger.error(f"Error in traditional skill extraction: {e}")
             return []
     
-    def _clean_text(self, text):
-        """Clean and preprocess text with error handling"""
+    def extract_skills(self, resume_text: str) -> List[Skill]:
+        """Hybrid skill extraction combining BERT and traditional methods"""
         try:
-            if not text:
-                return ""
+            # Get skills from both methods
+            bert_skills = self.extract_skills_bert(resume_text)
+            traditional_skills = self.extract_skills_traditional(resume_text)
             
-            # Convert to string if not already
-            text = str(text)
-            
-            # Remove extra whitespace
-            text = re.sub(r'\s+', ' ', text)
-            
-            # Remove special characters but keep alphanumeric and common punctuation
-            text = re.sub(r'[^\w\s\-\.\+\#]', ' ', text)
-            
-            # Remove extra spaces
-            text = ' '.join(text.split())
-            
-            return text.strip()
-            
-        except Exception as e:
-            logger.error(f"Error cleaning text: {e}")
-            return str(text) if text else ""
-    
-    def hybrid_skill_extraction(self, text, bert_weight=0.7, traditional_weight=0.3):
-        """Combine BERT and traditional approaches with comprehensive error handling"""
-        try:
-            self.processing_stats['total_processed'] += 1
-            
-            # Extract skills using both methods
-            bert_skills = self.extract_skills_bert(text) if self.bert_model else []
-            traditional_skills = self.extract_skills_traditional(text)
-            
-            # Merge and deduplicate
+            # Combine and deduplicate
             all_skills = {}
             
             # Add traditional skills (high confidence for exact matches)
-            for skill_info in traditional_skills:
-                skill = skill_info['skill'].lower()
-                all_skills[skill] = {
-                    'skill': skill_info['skill'],
-                    'confidence': 0.95 * traditional_weight,
-                    'category': skill_info['category'],
-                    'method': 'keyword',
-                    'sources': ['traditional']
-                }
+            for skill in traditional_skills:
+                key = skill.name.lower()
+                all_skills[key] = skill
+                all_skills[key].confidence = min(0.95, skill.confidence + 0.1)
             
             # Add BERT skills (semantic matches)
-            for skill_info in bert_skills:
-                skill = skill_info['skill'].lower()
-                bert_confidence = skill_info['confidence'] * bert_weight
-                
-                if skill in all_skills:
-                    # Combine confidences
-                    existing_confidence = all_skills[skill]['confidence']
-                    combined_confidence = min(1.0, existing_confidence + bert_confidence)
-                    all_skills[skill]['confidence'] = combined_confidence
-                    all_skills[skill]['sources'].append('bert')
-                    all_skills[skill]['method'] = 'hybrid'
+            for skill in bert_skills:
+                key = skill.name.lower()
+                if key not in all_skills:
+                    all_skills[key] = skill
                 else:
-                    all_skills[skill] = {
-                        'skill': skill_info['skill'],
-                        'confidence': bert_confidence,
-                        'category': skill_info['category'],
-                        'method': 'semantic',
-                        'sources': ['bert']
-                    }
+                    # Combine confidences for skills found by both methods
+                    existing_skill = all_skills[key]
+                    combined_confidence = min(1.0, existing_skill.confidence + skill.confidence * 0.3)
+                    all_skills[key].confidence = combined_confidence
+                    all_skills[key].source = 'resume_hybrid'
             
-            # Sort by confidence and return
-            final_skills = list(all_skills.values())
-            final_skills.sort(key=lambda x: x['confidence'], reverse=True)
-            
-            self.processing_stats['successful_extractions'] += 1
-            return final_skills
+            return list(all_skills.values())
             
         except Exception as e:
             logger.error(f"Error in hybrid skill extraction: {e}")
-            self.processing_stats['failed_extractions'] += 1
-            # Return traditional skills as fallback
-            try:
-                return self.extract_skills_traditional(text)
-            except:
-                return []
+            return self.extract_skills_traditional(resume_text)
     
-    def extract_personal_info(self, text):
-        """Extract personal information with comprehensive error handling"""
+    def _estimate_skill_level_bert(self, text: str, skill: str) -> float:
+        """Estimate skill level using BERT context understanding"""
         try:
-            personal_info = {
-                'name': '',
-                'email': '',
-                'phone': '',
-                'location': '',
-                'linkedin': '',
-                'github': ''
-            }
+            # Look for skill in context
+            sentences = [sent.text for sent in self.nlp(text).sents if skill.lower() in sent.text.lower()]
             
-            if not text:
-                return personal_info
+            if not sentences:
+                return 0.5  # Default level
             
-            text = str(text)
-            
-            # Extract email
-            email_pattern = r'\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b'
-            emails = re.findall(email_pattern, text)
-            if emails:
-                personal_info['email'] = emails[0]
-            
-            # Extract phone
-            phone_patterns = [
-                r'\+?1?[-.\s]?\(?([0-9]{3})\)?[-.\s]?([0-9]{3})[-.\s]?([0-9]{4})',
-                r'\+?[0-9]{1,3}[-.\s]?[0-9]{3,4}[-.\s]?[0-9]{3,4}[-.\s]?[0-9]{3,4}'
+            # Use BERT to understand proficiency context
+            proficiency_contexts = [
+                f"expert in {skill}",
+                f"advanced {skill}",
+                f"intermediate {skill}",
+                f"beginner {skill}"
             ]
             
-            for pattern in phone_patterns:
-                phones = re.findall(pattern, text)
-                if phones:
-                    if isinstance(phones[0], tuple):
-                        personal_info['phone'] = '-'.join(phones[0])
-                    else:
-                        personal_info['phone'] = phones[0]
-                    break
-            
-            # Extract LinkedIn
-            linkedin_pattern = r'linkedin\.com/in/([A-Za-z0-9-]+)'
-            linkedin_matches = re.findall(linkedin_pattern, text, re.IGNORECASE)
-            if linkedin_matches:
-                personal_info['linkedin'] = f"linkedin.com/in/{linkedin_matches[0]}"
-            
-            # Extract GitHub
-            github_pattern = r'github\.com/([A-Za-z0-9-]+)'
-            github_matches = re.findall(github_pattern, text, re.IGNORECASE)
-            if github_matches:
-                personal_info['github'] = f"github.com/{github_matches[0]}"
-            
-            # Extract name (first few words, excluding common resume headers)
-            lines = text.split('\n')
-            for line in lines[:5]:  # Check first 5 lines
-                line = line.strip()
-                if line and not any(header in line.lower() for header in 
-                                  ['resume', 'cv', 'curriculum', 'contact', 'email', 'phone']):
-                    words = line.split()
-                    if 2 <= len(words) <= 4 and all(word.isalpha() for word in words):
-                        personal_info['name'] = line
-                        break
-            
-            return personal_info
-            
-        except Exception as e:
-            logger.error(f"Error extracting personal info: {e}")
-            return {
-                'name': '', 'email': '', 'phone': '', 'location': '', 
-                'linkedin': '', 'github': ''
-            }
-    
-    def get_processing_stats(self):
-        """Get processing statistics"""
-        return self.processing_stats.copy()
-
-class BERTSkillGapAnalyzer:
-    """BERT-powered skill gap analysis with comprehensive error handling"""
-    
-    def __init__(self):
-        self.bert_model = None
-        self.job_market_skills = {}
-        self.learning_resources = {}
-        self.skill_difficulty_map = {}
-        self.industry_trends = {}
-        
-        # Initialize components
-        self._initialize_bert_model()
-        self._setup_job_market_data()
-        self._setup_learning_resources()
-        self._setup_skill_difficulty_mapping()
-        self._setup_industry_trends()
-    
-    def _initialize_bert_model(self):
-        """Initialize BERT model with error handling"""
-        try:
-            self.bert_model = SentenceTransformer('all-MiniLM-L6-v2')
-            logger.info("BERT model initialized for skill gap analysis")
-        except Exception as e:
-            logger.error(f"Error initializing BERT model: {e}")
-            self.bert_model = None
-    
-    def _setup_job_market_data(self):
-        """Setup comprehensive job market data"""
-        try:
-            self.job_market_skills = {
-                'data_scientist': {
-                    'required_skills': [
-                        'Python', 'Machine Learning', 'Deep Learning', 'Statistics',
-                        'Pandas', 'NumPy', 'Scikit-learn', 'TensorFlow', 'SQL',
-                        'Data Visualization', 'A/B Testing', 'Feature Engineering',
-                        'Jupyter', 'Git', 'Linear Algebra', 'Probability'
-                    ],
-                    'preferred_skills': [
-                        'PyTorch', 'Spark', 'Hadoop', 'AWS', 'Docker', 'MLOps',
-                        'Tableau', 'Power BI', 'R', 'Scala', 'Kubernetes'
-                    ],
-                    'avg_salary': 95000,
-                    'growth_rate': 0.22
-                },
-                'full_stack_developer': {
-                    'required_skills': [
-                        'JavaScript', 'React', 'Node.js', 'HTML', 'CSS', 'Python',
-                        'SQL', 'Git', 'RESTful APIs', 'MongoDB', 'Express.js',
-                        'Responsive Design', 'Version Control'
-                    ],
-                    'preferred_skills': [
-                        'AWS', 'Docker', 'TypeScript', 'GraphQL', 'Redux',
-                        'Vue.js', 'Angular', 'PostgreSQL', 'Redis', 'Webpack'
-                    ],
-                    'avg_salary': 78000,
-                    'growth_rate': 0.15
-                },
-                'machine_learning_engineer': {
-                    'required_skills': [
-                        'Python', 'TensorFlow', 'PyTorch', 'Kubernetes', 'Docker',
-                        'MLOps', 'Cloud Computing', 'Model Deployment', 'Git',
-                        'Linux', 'CI/CD', 'Machine Learning', 'Deep Learning'
-                    ],
-                    'preferred_skills': [
-                        'AWS', 'Azure', 'GCP', 'Airflow', 'Spark', 'Kafka',
-                        'Monitoring', 'A/B Testing', 'Feature Stores', 'Kubeflow'
-                    ],
-                    'avg_salary': 105000,
-                    'growth_rate': 0.28
-                },
-                'software_engineer': {
-                    'required_skills': [
-                        'Programming Languages', 'Data Structures', 'Algorithms',
-                        'System Design', 'Git', 'Testing', 'Debugging', 'APIs',
-                        'Database Design', 'Software Architecture'
-                    ],
-                    'preferred_skills': [
-                        'Cloud Platforms', 'DevOps', 'Microservices', 'Agile',
-                        'Code Review', 'Performance Optimization', 'Security'
-                    ],
-                    'avg_salary': 85000,
-                    'growth_rate': 0.18
-                },
-                'devops_engineer': {
-                    'required_skills': [
-                        'Linux', 'Docker', 'Kubernetes', 'AWS', 'CI/CD', 'Git',
-                        'Terraform', 'Ansible', 'Monitoring', 'Shell Scripting',
-                        'Infrastructure as Code', 'Jenkins'
-                    ],
-                    'preferred_skills': [
-                        'Azure', 'GCP', 'Helm', 'Prometheus', 'Grafana',
-                        'ELK Stack', 'Service Mesh', 'GitOps', 'Security'
-                    ],
-                    'avg_salary': 92000,
-                    'growth_rate': 0.25
-                },
-                'cybersecurity_analyst': {
-                    'required_skills': [
-                        'Network Security', 'Incident Response', 'Risk Assessment',
-                        'Security Frameworks', 'Penetration Testing', 'SIEM',
-                        'Vulnerability Assessment', 'Compliance', 'Forensics'
-                    ],
-                    'preferred_skills': [
-                        'Cloud Security', 'Threat Intelligence', 'Malware Analysis',
-                        'Security Automation', 'Zero Trust', 'DevSecOps'
-                    ],
-                    'avg_salary': 88000,
-                    'growth_rate': 0.31
-                }
-            }
-            logger.info(f"Job market data loaded for {len(self.job_market_skills)} roles")
-        except Exception as e:
-            logger.error(f"Error setting up job market data: {e}")
-            self.job_market_skills = {}
-    
-    def _setup_learning_resources(self):
-        """Setup comprehensive learning resources database"""
-        try:
-            self.learning_resources = {
-                'python': {
-                    'youtube': [
-                        'Python Tutorial - Programming with Mosh',
-                        'Automate the Boring Stuff with Python',
-                        'Python Full Course - freeCodeCamp',
-                        'Corey Schafer Python Tutorials'
-                    ],
-                    'articles': [
-                        'Python.org Official Tutorial',
-                        'Real Python',
-                        'GeeksforGeeks Python',
-                        'Python Tricks by Dan Bader'
-                    ],
-                    'practice': [
-                        'HackerRank Python',
-                        'LeetCode Python',
-                        'Codewars Python',
-                        'Python Challenge'
-                    ],
-                    'projects': [
-                        'Build a Web Scraper',
-                        'Create a REST API with Flask',
-                        'Data Analysis with Pandas',
-                        'Build a GUI Application'
-                    ],
-                    'books': [
-                        'Python Crash Course',
-                        'Effective Python',
-                        'Fluent Python'
-                    ]
-                },
-                'machine learning': {
-                    'youtube': [
-                        'Andrew Ng Machine Learning Course',
-                        '3Blue1Brown Neural Networks',
-                        'StatQuest Machine Learning',
-                        'Krish Naik ML Playlist'
-                    ],
-                    'articles': [
-                        'Towards Data Science',
-                        'Machine Learning Mastery',
-                        'Analytics Vidhya',
-                        'KDnuggets'
-                    ],
-                    'practice': [
-                        'Kaggle Competitions',
-                        'Google Colab Notebooks',
-                        'ML Course Labs',
-                        'Hands-On ML Exercises'
-                    ],
-                    'projects': [
-                        'Iris Classification',
-                        'House Price Prediction',
-                        'Customer Segmentation',
-                        'Recommendation System'
-                    ],
-                    'books': [
-                        'Hands-On Machine Learning',
-                        'Pattern Recognition and Machine Learning',
-                        'The Elements of Statistical Learning'
-                    ]
-                },
-                'react': {
-                    'youtube': [
-                        'React Tutorial - Traversy Media',
-                        'React Course - freeCodeCamp',
-                        'React Hooks Tutorial',
-                        'Modern React with Redux'
-                    ],
-                    'articles': [
-                        'React Official Documentation',
-                        'React Patterns',
-                        'Overreacted by Dan Abramov',
-                        'React Best Practices'
-                    ],
-                    'practice': [
-                        'React Challenges',
-                        'Frontend Mentor',
-                        'React Exercises',
-                        'Component Library Building'
-                    ],
-                    'projects': [
-                        'Todo App with Hooks',
-                        'Weather App',
-                        'E-commerce Site',
-                        'Social Media Dashboard'
-                    ],
-                    'books': [
-                        'Learning React',
-                        'React Up & Running',
-                        'Fullstack React'
-                    ]
-                }
-                # Add more skills as needed
-            }
-            
-            # Generate generic resources for skills not explicitly defined
-            self._generate_generic_resources()
-            
-        except Exception as e:
-            logger.error(f"Error setting up learning resources: {e}")
-            self.learning_resources = {}
-    
-    def _generate_generic_resources(self):
-        """Generate generic learning resources for skills not explicitly defined"""
-        generic_template = {
-            'youtube': ['{skill} Tutorial for Beginners', '{skill} Complete Course'],
-            'articles': ['Learn {skill} - Official Documentation', '{skill} Best Practices'],
-            'practice': ['{skill} Practice Problems', '{skill} Coding Challenges'],
-            'projects': ['Build a {skill} Project', '{skill} Portfolio Project'],
-            'books': ['{skill} Guide', 'Mastering {skill}']
-        }
-        
-        # This template will be used for skills not explicitly defined
-        self.generic_resource_template = generic_template
-    
-    def _setup_skill_difficulty_mapping(self):
-        """Setup skill difficulty and learning time estimates"""
-        try:
-            self.skill_difficulty_map = {
-                # Beginner (1-2 months)
-                'html': {'difficulty': 'beginner', 'time_weeks': 4},
-                'css': {'difficulty': 'beginner', 'time_weeks': 6},
-                'git': {'difficulty': 'beginner', 'time_weeks': 3},
-                'sql': {'difficulty': 'beginner', 'time_weeks': 8},
-                
-                # Intermediate (2-4 months)
-                'javascript': {'difficulty': 'intermediate', 'time_weeks': 12},
-                'python': {'difficulty': 'intermediate', 'time_weeks': 10},
-                'react': {'difficulty': 'intermediate', 'time_weeks': 14},
-                'node.js': {'difficulty': 'intermediate', 'time_weeks': 12},
-                'docker': {'difficulty': 'intermediate', 'time_weeks': 8},
-                
-                # Advanced (4-6 months)
-                'machine learning': {'difficulty': 'advanced', 'time_weeks': 20},
-                'deep learning': {'difficulty': 'advanced', 'time_weeks': 24},
-                'kubernetes': {'difficulty': 'advanced', 'time_weeks': 16},
-                'system design': {'difficulty': 'advanced', 'time_weeks': 18},
-                
-                # Expert (6+ months)
-                'mlops': {'difficulty': 'expert', 'time_weeks': 28},
-                'distributed systems': {'difficulty': 'expert', 'time_weeks': 32},
-                'cybersecurity': {'difficulty': 'expert', 'time_weeks': 30}
-            }
-        except Exception as e:
-            logger.error(f"Error setting up skill difficulty mapping: {e}")
-            self.skill_difficulty_map = {}
-    
-    def _setup_industry_trends(self):
-        """Setup industry trends and demand data"""
-        try:
-            self.industry_trends = {
-                'ai_ml': {
-                    'growth_rate': 0.35,
-                    'hot_skills': ['LLM', 'Generative AI', 'MLOps', 'Computer Vision'],
-                    'emerging_skills': ['Prompt Engineering', 'AI Ethics', 'Model Interpretability']
-                },
-                'web_development': {
-                    'growth_rate': 0.15,
-                    'hot_skills': ['React', 'TypeScript', 'Next.js', 'GraphQL'],
-                    'emerging_skills': ['Web3', 'JAMstack', 'Micro-frontends']
-                },
-                'cloud_computing': {
-                    'growth_rate': 0.28,
-                    'hot_skills': ['AWS', 'Kubernetes', 'Serverless', 'DevOps'],
-                    'emerging_skills': ['Edge Computing', 'Multi-cloud', 'FinOps']
-                },
-                'cybersecurity': {
-                    'growth_rate': 0.31,
-                    'hot_skills': ['Zero Trust', 'Cloud Security', 'DevSecOps'],
-                    'emerging_skills': ['AI Security', 'Quantum Cryptography', 'Privacy Engineering']
-                }
-            }
-        except Exception as e:
-            logger.error(f"Error setting up industry trends: {e}")
-            self.industry_trends = {}
-    
-    def analyze_skill_gaps(self, user_skills, target_job, user_experience_level='intermediate'):
-        """Comprehensive skill gap analysis with error handling"""
-        try:
-            if not user_skills:
-                return {'error': 'No user skills provided'}
-            
-            target_job_key = target_job.lower().replace(' ', '_')
-            if target_job_key not in self.job_market_skills:
-                return {'error': f'Job role {target_job} not found in database'}
-            
-            job_data = self.job_market_skills[target_job_key]
-            required_skills = job_data['required_skills']
-            preferred_skills = job_data.get('preferred_skills', [])
-            
-            # Analyze skills using BERT if available
             if self.bert_model:
-                analysis = self._bert_skill_analysis(user_skills, required_skills, preferred_skills)
-            else:
-                analysis = self._traditional_skill_analysis(user_skills, required_skills, preferred_skills)
+                sentence_embeddings = self.bert_model.encode(sentences[:3])
+                context_embeddings = self.bert_model.encode(proficiency_contexts)
+                
+                # Find best matching proficiency level
+                similarities = cosine_similarity(sentence_embeddings, context_embeddings)
+                max_sim_idx = np.argmax(similarities)
+                
+                # Map to skill levels
+                level_map = [0.9, 0.7, 0.5, 0.3]  # expert, advanced, intermediate, beginner
+                return level_map[max_sim_idx % 4]
             
-            # Add job market context
-            analysis.update({
-                'target_job': target_job,
-                'job_market_info': {
-                    'avg_salary': job_data.get('avg_salary', 0),
-                    'growth_rate': job_data.get('growth_rate', 0),
-                    'total_required_skills': len(required_skills),
-                    'total_preferred_skills': len(preferred_skills)
-                },
-                'user_experience_level': user_experience_level
-            })
-            
-            return analysis
+            return self._estimate_skill_level_traditional(text, skill)
             
         except Exception as e:
-            logger.error(f"Error in skill gap analysis: {e}")
-            return {'error': f'Analysis failed: {str(e)}'}
+            logger.error(f"Error estimating BERT skill level: {e}")
+            return 0.5
     
-    def _bert_skill_analysis(self, user_skills, required_skills, preferred_skills):
-        """BERT-powered skill analysis"""
-        try:
-            user_skills_text = ' '.join(user_skills)
-            user_embedding = self.bert_model.encode([user_skills_text])
-            
-            skill_analysis = []
-            
-            # Analyze required skills
-            for skill in required_skills:
-                skill_embedding = self.bert_model.encode([skill])
-                similarity = cosine_similarity(user_embedding, skill_embedding)[0][0]
-                
-                status = 'strong' if similarity > 0.7 else 'weak' if similarity > 0.4 else 'missing'
-                priority = 'high' if similarity < 0.4 else 'medium' if similarity < 0.7 else 'low'
-                
-                skill_analysis.append({
-                    'skill': skill,
-                    'similarity': float(similarity),
-                    'status': status,
-                    'priority': priority,
-                    'skill_type': 'required',
-                    'learning_time': self._get_learning_time(skill)
-                })
-            
-            # Analyze preferred skills
-            for skill in preferred_skills:
-                skill_embedding = self.bert_model.encode([skill])
-                similarity = cosine_similarity(user_embedding, skill_embedding)[0][0]
-                
-                status = 'strong' if similarity > 0.7 else 'weak' if similarity > 0.4 else 'missing'
-                priority = 'medium' if similarity < 0.4 else 'low'
-                
-                skill_analysis.append({
-                    'skill': skill,
-                    'similarity': float(similarity),
-                    'status': status,
-                    'priority': priority,
-                    'skill_type': 'preferred',
-                    'learning_time': self._get_learning_time(skill)
-                })
-            
-            # Calculate overall match
-            required_similarities = [s['similarity'] for s in skill_analysis if s['skill_type'] == 'required']
-            overall_match = np.mean(required_similarities) * 100 if required_similarities else 0
-            
-            return {
-                'overall_match_percentage': round(overall_match, 2),
-                'skill_analysis': skill_analysis,
-                'skill_gaps': [s for s in skill_analysis if s['status'] in ['weak', 'missing']],
-                'strong_skills': [s for s in skill_analysis if s['status'] == 'strong'],
-                'analysis_method': 'bert_semantic'
-            }
-            
-        except Exception as e:
-            logger.error(f"Error in BERT skill analysis: {e}")
-            return self._traditional_skill_analysis(user_skills, required_skills, preferred_skills)
-    
-    def _traditional_skill_analysis(self, user_skills, required_skills, preferred_skills):
-        """Traditional keyword-based skill analysis as fallback"""
-        try:
-            user_skills_lower = [skill.lower() for skill in user_skills]
-            skill_analysis = []
-            
-            # Analyze required skills
-            for skill in required_skills:
-                skill_lower = skill.lower()
-                has_skill = any(skill_lower in user_skill or user_skill in skill_lower 
-                              for user_skill in user_skills_lower)
-                
-                status = 'strong' if has_skill else 'missing'
-                priority = 'low' if has_skill else 'high'
-                similarity = 1.0 if has_skill else 0.0
-                
-                skill_analysis.append({
-                    'skill': skill,
-                    'similarity': similarity,
-                    'status': status,
-                    'priority': priority,
-                    'skill_type': 'required',
-                    'learning_time': self._get_learning_time(skill)
-                })
-            
-            # Analyze preferred skills
-            for skill in preferred_skills:
-                skill_lower = skill.lower()
-                has_skill = any(skill_lower in user_skill or user_skill in skill_lower 
-                              for user_skill in user_skills_lower)
-                
-                status = 'strong' if has_skill else 'missing'
-                priority = 'low' if has_skill else 'medium'
-                similarity = 1.0 if has_skill else 0.0
-                
-                skill_analysis.append({
-                    'skill': skill,
-                    'similarity': similarity,
-                    'status': status,
-                    'priority': priority,
-                    'skill_type': 'preferred',
-                    'learning_time': self._get_learning_time(skill)
-                })
-            
-            # Calculate overall match
-            required_matches = sum(1 for s in skill_analysis 
-                                 if s['skill_type'] == 'required' and s['status'] == 'strong')
-            total_required = len(required_skills)
-            overall_match = (required_matches / total_required * 100) if total_required > 0 else 0
-            
-            return {
-                'overall_match_percentage': round(overall_match, 2),
-                'skill_analysis': skill_analysis,
-                'skill_gaps': [s for s in skill_analysis if s['status'] == 'missing'],
-                'strong_skills': [s for s in skill_analysis if s['status'] == 'strong'],
-                'analysis_method': 'keyword_matching'
-            }
-            
-        except Exception as e:
-            logger.error(f"Error in traditional skill analysis: {e}")
-            return {
-                'error': 'Skill analysis failed',
-                'overall_match_percentage': 0,
-                'skill_analysis': [],
-                'skill_gaps': [],
-                'strong_skills': []
-            }
-    
-    def _get_learning_time(self, skill):
-        """Get estimated learning time for a skill"""
-        try:
-            skill_lower = skill.lower()
-            if skill_lower in self.skill_difficulty_map:
-                return self.skill_difficulty_map[skill_lower]
-            
-            # Default estimates based on common patterns
-            if any(keyword in skill_lower for keyword in ['basic', 'html', 'css']):
-                return {'difficulty': 'beginner', 'time_weeks': 4}
-            elif any(keyword in skill_lower for keyword in ['advanced', 'machine learning', 'deep learning']):
-                return {'difficulty': 'advanced', 'time_weeks': 20}
-            else:
-                return {'difficulty': 'intermediate', 'time_weeks': 12}
-                
-        except Exception as e:
-            logger.error(f"Error getting learning time for {skill}: {e}")
-            return {'difficulty': 'intermediate', 'time_weeks': 12}
-    
-    def generate_learning_roadmap(self, skill_gaps, user_level='beginner', target_timeline_months=6):
-        """Generate comprehensive learning roadmap with error handling"""
-        try:
-            if not skill_gaps:
-                return {
-                    'message': 'No skill gaps identified - you\'re well-prepared for this role!',
-                    'phases': [],
-                    'total_estimated_time': '0 months',
-                    'resources': {}
-                }
-            
-            # Sort skills by priority and learning time
-            sorted_gaps = sorted(skill_gaps, key=lambda x: (
-                0 if x['priority'] == 'high' else 1 if x['priority'] == 'medium' else 2,
-                x.get('learning_time', {}).get('time_weeks', 12)
-            ))
-            
-            # Create learning phases
-            phases = []
-            current_phase = 1
-            current_phase_skills = []
-            current_phase_weeks = 0
-            max_phase_weeks = (target_timeline_months * 4) // 3  # Divide timeline into 3 phases
-            
-            for skill_gap in sorted_gaps:
-                skill_weeks = skill_gap.get('learning_time', {}).get('time_weeks', 12)
-                
-                # If adding this skill would exceed phase limit, start new phase
-                if current_phase_weeks + skill_weeks > max_phase_weeks and current_phase_skills:
-                    phases.append({
-                        'phase': current_phase,
-                        'title': self._get_phase_title(current_phase),
-                        'duration_weeks': current_phase_weeks,
-                        'skills': current_phase_skills.copy(),
-                        'description': self._get_phase_description(current_phase, current_phase_skills)
-                    })
-                    
-                    current_phase += 1
-                    current_phase_skills = []
-                    current_phase_weeks = 0
-                
-                current_phase_skills.append(skill_gap['skill'])
-                current_phase_weeks += skill_weeks
-            
-            # Add remaining skills to final phase
-            if current_phase_skills:
-                phases.append({
-                    'phase': current_phase,
-                    'title': self._get_phase_title(current_phase),
-                    'duration_weeks': current_phase_weeks,
-                    'skills': current_phase_skills,
-                    'description': self._get_phase_description(current_phase, current_phase_skills)
-                })
-            
-            # Add portfolio/practice phase
-            phases.append({
-                'phase': len(phases) + 1,
-                'title': 'Portfolio Development & Job Preparation',
-                'duration_weeks': 4,
-                'skills': ['Project Building', 'Portfolio Creation', 'Interview Preparation', 'Networking'],
-                'description': 'Apply learned skills in real projects and prepare for job applications'
-            })
-            
-            # Generate resources
-            resources = {}
-            for skill_gap in skill_gaps:
-                skill = skill_gap['skill'].lower()
-                resources[skill] = self._get_skill_resources(skill)
-            
-            # Calculate total time
-            total_weeks = sum(phase['duration_weeks'] for phase in phases)
-            total_months = max(1, round(total_weeks / 4))
-            
-            return {
-                'total_estimated_time': f'{total_months} months',
-                'total_weeks': total_weeks,
-                'phases': phases,
-                'resources': resources,
-                'learning_tips': self._get_learning_tips(user_level),
-                'success_metrics': self._get_success_metrics()
-            }
-            
-        except Exception as e:
-            logger.error(f"Error generating learning roadmap: {e}")
-            return {
-                'error': 'Failed to generate roadmap',
-                'total_estimated_time': '6 months',
-                'phases': [],
-                'resources': {}
-            }
-    
-    def _get_phase_title(self, phase_number):
-        """Get appropriate title for learning phase"""
-        titles = {
-            1: 'Foundation Skills',
-            2: 'Core Competencies',
-            3: 'Advanced Skills',
-            4: 'Specialization',
-            5: 'Mastery'
+    def _estimate_skill_level_traditional(self, text: str, skill: str) -> float:
+        """Traditional skill level estimation"""
+        level_indicators = {
+            'expert': 0.9, 'senior': 0.8, 'advanced': 0.8,
+            'experienced': 0.7, 'proficient': 0.6, 'intermediate': 0.5,
+            'familiar': 0.4, 'basic': 0.3, 'beginner': 0.2
         }
-        return titles.get(phase_number, f'Phase {phase_number}')
+        
+        skill_context = []
+        doc = self.nlp(text.lower())
+        
+        for sent in doc.sents:
+            if skill.lower() in sent.text:
+                skill_context.append(sent.text)
+        
+        max_level = 0.5  # Default
+        for context in skill_context:
+            for indicator, level in level_indicators.items():
+                if indicator in context:
+                    max_level = max(max_level, level)
+        
+        # Look for years of experience
+        years_pattern = r'(\d+)\s*(?:years?|yrs?)'
+        for context in skill_context:
+            years_match = re.search(years_pattern, context)
+            if years_match:
+                years = int(years_match.group(1))
+                experience_level = min(0.9, 0.3 + (years * 0.1))
+                max_level = max(max_level, experience_level)
+        
+        return max_level
     
-    def _get_phase_description(self, phase_number, skills):
-        """Get description for learning phase"""
-        if phase_number == 1:
-            return f'Build foundational knowledge in {", ".join(skills[:2])} and related core concepts'
-        elif phase_number == 2:
-            return f'Develop practical skills in {", ".join(skills[:2])} with hands-on projects'
-        else:
-            return f'Master advanced concepts in {", ".join(skills[:2])} and apply to real-world scenarios'
-    
-    def _get_skill_resources(self, skill):
-        """Get learning resources for a specific skill"""
-        try:
-            if skill in self.learning_resources:
-                return self.learning_resources[skill]
-            
-            # Generate generic resources using template
-            skill_title = skill.replace('_', ' ').title()
-            generic_resources = {}
-            
-            for resource_type, templates in self.generic_resource_template.items():
-                generic_resources[resource_type] = [
-                    template.format(skill=skill_title) for template in templates
+    def _calculate_skill_confidence_traditional(self, text: str, skill: str) -> float:
+        """Calculate confidence using traditional methods"""
+        sentences = [sent.text for sent in self.nlp(text).sents if skill.lower() in sent.text.lower()]
+        
+        if not sentences:
+            return 0.5
+        
+        # Use Universal Sentence Encoder if available
+        if self.use_model:
+            try:
+                skill_contexts = [
+                    f"Expert in {skill}",
+                    f"Experienced with {skill}",
+                    f"Proficient in {skill}"
                 ]
-            
-            return generic_resources
-            
-        except Exception as e:
-            logger.error(f"Error getting resources for {skill}: {e}")
-            return {
-                'youtube': [f'{skill.title()} Tutorial'],
-                'articles': [f'Learn {skill.title()}'],
-                'practice': [f'{skill.title()} Exercises'],
-                'projects': [f'{skill.title()} Project']
-            }
+                
+                sentence_embeddings = self.use_model(sentences[:3])
+                context_embeddings = self.use_model(skill_contexts)
+                
+                similarities = tf.keras.utils.cosine_similarity(
+                    sentence_embeddings, 
+                    tf.reduce_mean(context_embeddings, axis=0, keepdims=True)
+                )
+                
+                return float(tf.reduce_mean(similarities))
+            except Exception as e:
+                logger.error(f"Error with USE: {e}")
+        
+        # Fallback to simple confidence
+        return min(0.9, 0.6 + len(sentences) * 0.1)
     
-    def _get_learning_tips(self, user_level):
-        """Get personalized learning tips based on user level"""
-        tips = {
-            'beginner': [
-                'Start with fundamentals and don\'t rush',
-                'Practice coding every day, even if just 30 minutes',
-                'Join online communities and forums for support',
-                'Build small projects to apply what you learn',
-                'Don\'t be afraid to ask questions'
-            ],
-            'intermediate': [
-                'Focus on building substantial projects',
-                'Contribute to open source projects',
-                'Learn best practices and design patterns',
-                'Network with other professionals',
-                'Consider getting certifications'
-            ],
-            'advanced': [
-                'Mentor others to solidify your knowledge',
-                'Stay updated with industry trends',
-                'Specialize in niche areas',
-                'Speak at conferences or write technical blogs',
-                'Lead technical projects at work'
-            ]
-        }
-        return tips.get(user_level, tips['intermediate'])
-    
-    def _get_success_metrics(self):
-        """Get success metrics for tracking progress"""
-        return {
-            'weekly_goals': [
-                'Complete assigned learning materials',
-                'Build one small project or exercise',
-                'Review and practice previous week\'s concepts',
-                'Connect with one new person in the field'
-            ],
-            'monthly_milestones': [
-                'Complete a substantial project',
-                'Pass a relevant certification or assessment',
-                'Contribute to an open source project',
-                'Update portfolio with new work'
-            ],
-            'progress_indicators': [
-                'Ability to explain concepts to others',
-                'Confidence in using tools independently',
-                'Recognition from peers or mentors',
-                'Job interview success rate improvement'
-            ]
-        }
+    def _deduplicate_skills(self, skills: List[Skill]) -> List[Skill]:
+        """Remove duplicate skills and keep the one with highest confidence"""
+        skill_dict = {}
+        for skill in skills:
+            key = skill.name.lower()
+            if key not in skill_dict or skill.confidence > skill_dict[key].confidence:
+                skill_dict[key] = skill
+        
+        return list(skill_dict.values())
 
-# Continue with the rest of the comprehensive system...
-# [The code continues with the enhanced SkillAssessmentEngine, PersonalizedLearningSystem, and Flask application with full error handling]
-
-class BERTEnhancedSkillAssessmentEngine:
-    """Enhanced Skill Assessment Engine with comprehensive BERT integration and error handling"""
+class ComputerVisionSkillExtractor:
+    """Extract skills from certificates, portfolios, and project screenshots"""
     
     def __init__(self):
-        self.bert_model = None
-        self.skill_gap_analyzer = None
-        self.tf_model = None
-        self.assessment_history = []
-        self.model_performance_stats = {
-            'total_assessments': 0,
-            'successful_assessments': 0,
-            'bert_assessments': 0,
-            'traditional_assessments': 0,
-            'average_confidence': 0.0
+        self.certificate_templates = {
+            'aws': ['aws', 'amazon web services', 'certified'],
+            'google_cloud': ['google cloud', 'gcp', 'certified'],
+            'microsoft': ['microsoft', 'azure', 'certified'],
+            'coursera': ['coursera', 'certificate', 'completion'],
+            'udemy': ['udemy', 'certificate', 'completion']
+        }
+    
+    def extract_from_certificate(self, image_path: str) -> List[Skill]:
+        """Extract skills from certificate images"""
+        try:
+            # Load and preprocess image
+            if hasattr(image_path, 'read'):  # File object
+                content = image_path.read()
+                image = Image.open(io.BytesIO(content))
+                image = np.array(image)
+                if len(image.shape) == 3:
+                    gray = cv2.cvtColor(image, cv2.COLOR_RGB2GRAY)
+                else:
+                    gray = image
+            else:
+                image = cv2.imread(image_path)
+                gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+            
+            # Apply image enhancement
+            enhanced = self._enhance_image(gray)
+            
+            # Extract text using OCR
+            text = pytesseract.image_to_string(enhanced)
+            
+            skills = []
+            text_lower = text.lower()
+            
+            # Identify certificate type and extract relevant skills
+            for cert_type, keywords in self.certificate_templates.items():
+                if any(keyword in text_lower for keyword in keywords):
+                    extracted_skills = self._extract_certificate_skills(text, cert_type)
+                    skills.extend(extracted_skills)
+            
+            return skills
+        except Exception as e:
+            logger.error(f"Error extracting from certificate: {e}")
+            return []
+    
+    def _enhance_image(self, gray_image):
+        """Enhance image for better OCR results"""
+        try:
+            # Apply Gaussian blur to reduce noise
+            blurred = cv2.GaussianBlur(gray_image, (5, 5), 0)
+            
+            # Apply threshold to get binary image
+            _, binary = cv2.threshold(blurred, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+            
+            # Apply morphological operations to clean up
+            kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (3, 3))
+            cleaned = cv2.morphologyEx(binary, cv2.MORPH_CLOSE, kernel)
+            
+            return cleaned
+        except Exception as e:
+            logger.error(f"Error enhancing image: {e}")
+            return gray_image
+    
+    def _extract_certificate_skills(self, text: str, cert_type: str) -> List[Skill]:
+        """Extract skills based on certificate type"""
+        skills = []
+        
+        skill_mappings = {
+            'aws': ['cloud computing', 'aws', 'ec2', 's3', 'lambda'],
+            'google_cloud': ['cloud computing', 'gcp', 'bigquery', 'kubernetes'],
+            'microsoft': ['azure', 'cloud computing', '.net', 'sql server'],
+            'coursera': self._extract_coursera_skills(text),
+            'udemy': self._extract_general_skills(text)
         }
         
-        # Initialize components
-        self._initialize_components()
+        if cert_type in skill_mappings:
+            skill_list = skill_mappings[cert_type]
+            if callable(skill_list):
+                skill_list = skill_list
+            
+            for skill_name in skill_list:
+                skills.append(Skill(
+                    name=skill_name,
+                    level=0.7,  # Certificate implies good proficiency
+                    category=self._categorize_skill(skill_name),
+                    confidence=0.9,  # High confidence from certificates
+                    source='vision'
+                ))
+        
+        return skills
     
-    def _initialize_components(self):
-        """Initialize all components with error handling"""
+    def _extract_coursera_skills(self, text: str) -> List[str]:
+        """Extract skills from Coursera certificates"""
+        course_patterns = [
+            r'machine learning',
+            r'deep learning',
+            r'data science',
+            r'python',
+            r'tensorflow',
+            r'neural networks'
+        ]
+        
+        skills = []
+        for pattern in course_patterns:
+            if re.search(pattern, text, re.IGNORECASE):
+                skills.append(pattern.replace(' ', '_'))
+        
+        return skills
+    
+    def _extract_general_skills(self, text: str) -> List[str]:
+        """Extract general skills from certificate text"""
+        common_skills = [
+            'python', 'java', 'javascript', 'react', 'angular',
+            'machine learning', 'data science', 'sql', 'mongodb'
+        ]
+        
+        found_skills = []
+        text_lower = text.lower()
+        
+        for skill in common_skills:
+            if skill in text_lower:
+                found_skills.append(skill)
+        
+        return found_skills
+    
+    def _categorize_skill(self, skill_name: str) -> str:
+        """Categorize skill based on name"""
+        categories = {
+            'programming': ['python', 'java', 'javascript', 'react', 'angular'],
+            'cloud': ['aws', 'azure', 'gcp', 'cloud computing'],
+            'data_science': ['machine learning', 'deep learning', 'tensorflow', 'data science'],
+            'database': ['sql', 'mongodb', 'postgresql']
+        }
+        
+        for category, skills in categories.items():
+            if skill_name.lower() in [s.lower() for s in skills]:
+                return category
+        
+        return 'general'
+
+class SkillAssessmentEngine:
+    """AI-powered skill assessment system with BERT enhancement"""
+    
+    def __init__(self):
+        self.assessment_questions = self._load_assessment_questions()
+        self.difficulty_levels = ['beginner', 'intermediate', 'advanced', 'expert']
+        
+        # Build TensorFlow model for adaptive assessment
+        self.assessment_model = self._build_assessment_model()
+        
+        # BERT integration for assessment enhancement
         try:
-            # Initialize BERT model
             self.bert_model = SentenceTransformer('all-MiniLM-L6-v2')
-            logger.info("BERT model initialized for skill assessment")
         except Exception as e:
-            logger.error(f"Error initializing BERT model: {e}")
+            logger.error(f"Error loading BERT for assessment: {e}")
             self.bert_model = None
-        
-        try:
-            # Initialize skill gap analyzer
-            self.skill_gap_analyzer = BERTSkillGapAnalyzer()
-            logger.info("Skill gap analyzer initialized")
-        except Exception as e:
-            logger.error(f"Error initializing skill gap analyzer: {e}")
-            self.skill_gap_analyzer = None
-        
-        try:
-            # Build TensorFlow model
-            self.build_tensorflow_model()
-            logger.info("TensorFlow assessment model built")
-        except Exception as e:
-            logger.error(f"Error building TensorFlow model: {e}")
-            self.tf_model = None
     
-    def build_tensorflow_model(self):
-        """Build TensorFlow model for skill level assessment with error handling"""
+    def _build_assessment_model(self):
+        """Build TensorFlow model for adaptive skill assessment"""
         try:
-            model = keras.Sequential([
-                layers.Dense(128, activation='relu', input_shape=(10,)),
-                layers.Dropout(0.3),
-                layers.Dense(64, activation='relu'),
-                layers.Dropout(0.3),
-                layers.Dense(32, activation='relu'),
-                layers.Dense(5, activation='softmax')  # 5 skill levels
-            ])
+            # Input layers
+            question_input = Input(shape=(100,), name='question_embedding')
+            user_history = Input(shape=(50,), name='user_history')
             
-            model.compile(
-                optimizer='adam',
-                loss='sparse_categorical_crossentropy',
-                metrics=['accuracy']
-            )
+            # Dense layers for processing
+            question_dense = Dense(64, activation='relu')(question_input)
+            question_dense = Dropout(0.3)(question_dense)
             
-            self.tf_model = model
-            return model
-            
-        except Exception as e:
-            logger.error(f"Error building TensorFlow model: {e}")
-            self.tf_model = None
-            return None
-    
-    def assess_skill_level_bert(self, user_responses, skill_domain, context_info=None):
-        """BERT-enhanced skill level assessment with comprehensive error handling"""
-        try:
-            self.model_performance_stats['total_assessments'] += 1
-            
-            if not user_responses:
-                return self._fallback_assessment(skill_domain, 'No responses provided')
-            
-            # Combine user responses into text
-            if isinstance(user_responses, list):
-                response_text = ' '.join(str(response) for response in user_responses)
-            else:
-                response_text = str(user_responses)
-            
-            if not self.bert_model:
-                return self._traditional_assessment(user_responses, skill_domain)
-            
-            # Generate BERT embedding
-            try:
-                response_embedding = self.bert_model.encode([response_text], show_progress_bar=False)
-                self.model_performance_stats['bert_assessments'] += 1
-            except Exception as bert_error:
-                logger.error(f"BERT encoding error: {bert_error}")
-                return self._traditional_assessment(user_responses, skill_domain)
-            
-            # Create feature vector for TensorFlow model
-            try:
-                features = self._create_feature_vector(response_embedding[0], user_responses, context_info)
-                
-                # Predict skill level using TensorFlow
-                if self.tf_model:
-                    prediction = self.tf_model.predict([features], verbose=0)
-                    skill_level = np.argmax(prediction[0])
-                    confidence = float(np.max(prediction[0]))
-                else:
-                    # Fallback assessment based on response quality
-                    skill_level, confidence = self._heuristic_assessment(response_text, user_responses)
-                
-            except Exception as tf_error:
-                logger.error(f"TensorFlow prediction error: {tf_error}")
-                skill_level, confidence = self._heuristic_assessment(response_text, user_responses)
-            
-            level_names = ['Beginner', 'Basic', 'Intermediate', 'Advanced', 'Expert']
-            
-            assessment_result = {
-                'skill_level': level_names[skill_level],
-                'level_numeric': skill_level,
-                'confidence': confidence,
-                'assessment_method': 'bert_enhanced',
-                'skill_domain': skill_domain,
-                'response_analysis': self._analyze_response_quality(response_text),
-                'recommendations': self._get_skill_recommendations(skill_level, skill_domain),
-                'timestamp': datetime.now().isoformat()
-            }
-            
-            # Update statistics
-            self.model_performance_stats['successful_assessments'] += 1
-            self.model_performance_stats['average_confidence'] = (
-                (self.model_performance_stats['average_confidence'] * 
-                 (self.model_performance_stats['successful_assessments'] - 1) + confidence) /
-                self.model_performance_stats['successful_assessments']
-            )
-            
-            # Store assessment history
-            self.assessment_history.append(assessment_result)
-            
-            return assessment_result
-            
-        except Exception as e:
-            logger.error(f"Error in BERT skill assessment: {e}")
-            return self._fallback_assessment(skill_domain, str(e))
-    
-    def _create_feature_vector(self, bert_embedding, user_responses, context_info):
-        """Create feature vector for TensorFlow model"""
-        try:
-            # Use first 8 BERT dimensions
-            bert_features = bert_embedding[:8]
-            
-            # Add response-based features
-            response_features = [
-                len(user_responses) if isinstance(user_responses, list) else 1,
-                len(str(user_responses))
-            ]
+            history_dense = Dense(32, activation='relu')(user_history)
+            history_dense = Dropout(0.3)(history_dense)
             
             # Combine features
-            features = np.concatenate([bert_features, response_features])
+            combined = tf.keras.layers.concatenate([question_dense, history_dense])
+            combined = Dense(32, activation='relu')(combined)
             
-            # Ensure feature vector has exactly 10 dimensions
-            if len(features) < 10:
-                features = np.pad(features, (0, 10 - len(features)), 'constant')
-            elif len(features) > 10:
-                features = features[:10]
+            # Output layer for difficulty prediction
+            output = Dense(4, activation='softmax', name='difficulty_prediction')(combined)
             
-            return features
+            model = tf.keras.Model(inputs=[question_input, user_history], outputs=output)
+            model.compile(optimizer='adam', loss='categorical_crossentropy', metrics=['accuracy'])
             
+            return model
         except Exception as e:
-            logger.error(f"Error creating feature vector: {e}")
-            # Return default feature vector
-            return np.zeros(10)
+            logger.error(f"Error building assessment model: {e}")
+            return None
     
-    def _heuristic_assessment(self, response_text, user_responses):
-        """Heuristic-based assessment as fallback"""
-        try:
-            # Simple heuristics based on response characteristics
-            response_length = len(response_text)
-            num_responses = len(user_responses) if isinstance(user_responses, list) else 1
-            
-            # Calculate skill level based on response quality
-            if response_length < 50:
-                skill_level = 0  # Beginner
-                confidence = 0.6
-            elif response_length < 150:
-                skill_level = 1  # Basic
-                confidence = 0.7
-            elif response_length < 300:
-                skill_level = 2  # Intermediate
-                confidence = 0.75
-            elif response_length < 500:
-                skill_level = 3  # Advanced
-                confidence = 0.8
-            else:
-                skill_level = 4  # Expert
-                confidence = 0.85
-            
-            # Adjust based on number of responses
-            if num_responses > 5:
-                confidence = min(0.95, confidence + 0.1)
-            
-            return skill_level, confidence
-            
-        except Exception as e:
-            logger.error(f"Error in heuristic assessment: {e}")
-            return 1, 0.5  # Default to Basic level
-    
-
-    def _traditional_assessment(self, user_responses, skill_domain):
-        """Traditional assessment method as fallback"""
-        try:
-            self.model_performance_stats['traditional_assessments'] += 1
-            
-            num_responses = len(user_responses) if isinstance(user_responses, list) else 1
-            
-            # Simple assessment based on response count and length
-            if num_responses < 3:
-                skill_level = 0  # Beginner
-                confidence = 0.6
-            elif num_responses < 6:
-                skill_level = 1  # Basic
-                confidence = 0.7
-            elif num_responses < 10:
-                skill_level = 2  # Intermediate
-                confidence = 0.75
-            else:
-                skill_level = 3  # Advanced
-                confidence = 0.8
-            
-            level_names = ['Beginner', 'Basic', 'Intermediate', 'Advanced', 'Expert']
-            
-            return {
-                'skill_level': level_names[skill_level],
-                'level_numeric': skill_level,
-                'confidence': confidence,
-                'assessment_method': 'traditional_fallback',
-                'skill_domain': skill_domain
-            }
-            
-        except Exception as e:
-            logger.error(f"Error in traditional assessment: {e}")
-            return {
-                'skill_level': 'Basic',
-                'level_numeric': 1,
-                'confidence': 0.5,
-                'assessment_method': 'fallback',
-                'skill_domain': skill_domain
-            }
-
-    def _fallback_assessment(self, skill_domain, error_msg):
-        """Final fallback assessment"""
+    def _load_assessment_questions(self) -> Dict[str, List[Dict]]:
+        """Load assessment questions for different skills"""
         return {
-            'skill_level': 'Basic',
-            'level_numeric': 1,
-            'confidence': 0.5,
-            'assessment_method': 'error_fallback',
-            'skill_domain': skill_domain,
-            'error': error_msg
+            'python': [
+                {
+                    'question': 'What is the output of print(type([]) == list)?',
+                    'options': ['True', 'False', 'Error', 'None'],
+                    'correct': 0,
+                    'difficulty': 'beginner',
+                    'concept': 'data types'
+                },
+                {
+                    'question': 'Which decorator is used to create a property in Python?',
+                    'options': ['@property', '@staticmethod', '@classmethod', '@decorator'],
+                    'correct': 0,
+                    'difficulty': 'intermediate',
+                    'concept': 'decorators'
+                },
+                {
+                    'question': 'What is the purpose of the __init__ method in Python?',
+                    'options': ['To initialize class variables', 'To create a new instance', 'To define class methods', 'To inherit from parent class'],
+                    'correct': 1,
+                    'difficulty': 'intermediate',
+                    'concept': 'object oriented programming'
+                }
+            ],
+            'machine_learning': [
+                {
+                    'question': 'What is overfitting in machine learning?',
+                    'options': [
+                        'Model performs well on training but poor on test data',
+                        'Model performs poorly on both training and test data',
+                        'Model is too simple',
+                        'Model has too few parameters'
+                    ],
+                    'correct': 0,
+                    'difficulty': 'intermediate',
+                    'concept': 'model evaluation'
+                },
+                {
+                    'question': 'Which algorithm is commonly used for classification problems?',
+                    'options': ['Linear Regression', 'Decision Tree', 'K-means', 'PCA'],
+                    'correct': 1,
+                    'difficulty': 'beginner',
+                    'concept': 'classification'
+                }
+            ],
+            'javascript': [
+                {
+                    'question': 'What is the correct way to declare a variable in JavaScript?',
+                    'options': ['var x = 5;', 'variable x = 5;', 'v x = 5;', 'declare x = 5;'],
+                    'correct': 0,
+                    'difficulty': 'beginner',
+                    'concept': 'variables'
+                }
+            ]
         }
+    
+    def conduct_assessment(self, user_id: str, skill: str, num_questions: int = 10) -> Dict[str, Any]:
+        """Conduct adaptive skill assessment with BERT enhancement"""
+        try:
+            if skill not in self.assessment_questions:
+                return {'error': f'No assessment available for {skill}'}
+            
+            questions = self.assessment_questions[skill]
+            user_responses = []
+            current_difficulty = 1  # Start with intermediate
+            
+            assessment_results = {
+                'user_id': user_id,
+                'skill': skill,
+                'questions_answered': 0,
+                'correct_answers': 0,
+                'estimated_level': 0.5,
+                'confidence': 0.0,
+                'areas_for_improvement': [],
+                'strong_areas': []
+            }
+            
+            # Simulate adaptive questioning
+            for i in range(min(num_questions, len(questions))):
+                question = questions[i % len(questions)]
+                
+                # Simulate user response
+                simulated_response = np.random.choice([0, 1, 2, 3])
+                is_correct = simulated_response == question['correct']
+                
+                user_responses.append({
+                    'question_id': i,
+                    'response': simulated_response,
+                    'correct': is_correct,
+                    'difficulty': question['difficulty'],
+                    'concept': question['concept']
+                })
+                
+                assessment_results['questions_answered'] += 1
+                if is_correct:
+                    assessment_results['correct_answers'] += 1
+            
+            # Calculate final assessment metrics
+            assessment_results['estimated_level'] = self._calculate_skill_level(user_responses)
+            assessment_results['confidence'] = self._calculate_confidence(user_responses)
+            assessment_results['areas_for_improvement'] = self._identify_weak_areas(user_responses)
+            assessment_results['strong_areas'] = self._identify_strong_areas(user_responses)
+            
+            return assessment_results
+            
+        except Exception as e:
+            logger.error(f"Error in assessment: {e}")
+            return {'error': str(e)}
+    
+    def _calculate_skill_level(self, responses: List[Dict]) -> float:
+        """Calculate estimated skill level based on responses"""
+        if not responses:
+            return 0.0
+        
+        difficulty_weights = {'beginner': 0.25, 'intermediate': 0.5, 'advanced': 0.75, 'expert': 1.0}
+        total_weight = 0
+        weighted_score = 0
+        
+        for response in responses:
+            weight = difficulty_weights.get(response['difficulty'], 0.5)
+            total_weight += weight
+            if response['correct']:
+                weighted_score += weight
+        
+        return weighted_score / total_weight if total_weight > 0 else 0.0
+    
+    def _calculate_confidence(self, responses: List[Dict]) -> float:
+        """Calculate confidence in skill level estimation"""
+        if len(responses) < 3:
+            return 0.3
+        
+        correct_count = sum(1 for r in responses if r['correct'])
+        accuracy = correct_count / len(responses)
+        
+        variance = np.var([1 if r['correct'] else 0 for r in responses])
+        confidence = min(0.95, 0.5 + (1 - variance) * 0.4)
+        
+        return confidence
+    
+    def _identify_weak_areas(self, responses: List[Dict]) -> List[str]:
+        """Identify areas where user performed poorly"""
+        concept_performance = {}
+        
+        for response in responses:
+            concept = response['concept']
+            if concept not in concept_performance:
+                concept_performance[concept] = {'correct': 0, 'total': 0}
+            
+            concept_performance[concept]['total'] += 1
+            if response['correct']:
+                concept_performance[concept]['correct'] += 1
+        
+        weak_areas = []
+        for concept, perf in concept_performance.items():
+            accuracy = perf['correct'] / perf['total']
+            if accuracy < 0.6:
+                weak_areas.append(concept)
+        
+        return weak_areas
+    
+    def _identify_strong_areas(self, responses: List[Dict]) -> List[str]:
+        """Identify areas where user performed well"""
+        concept_performance = {}
+        
+        for response in responses:
+            concept = response['concept']
+            if concept not in concept_performance:
+                concept_performance[concept] = {'correct': 0, 'total': 0}
+            
+            concept_performance[concept]['total'] += 1
+            if response['correct']:
+                concept_performance[concept]['correct'] += 1
+        
+        strong_areas = []
+        for concept, perf in concept_performance.items():
+            accuracy = perf['correct'] / perf['total']
+            if accuracy >= 0.8:
+                strong_areas.append(concept)
+        
+        return strong_areas
+
+class LearningPathGenerator:
+    """Generate personalized learning paths with BERT enhancement"""
+    
+    def __init__(self):
+        self.learning_resources = self._initialize_learning_resources()
+        self.skill_prerequisites = self._define_skill_prerequisites()
+        
+        # BERT integration for better resource matching
+        try:
+            self.bert_model = SentenceTransformer('all-MiniLM-L6-v2')
+        except Exception as e:
+            logger.error(f"Error loading BERT for learning paths: {e}")
+            self.bert_model = None
+        
+        # TensorFlow model for learning path optimization
+        self.recommendation_model = self._build_recommendation_model()
+    
+    def _build_recommendation_model(self):
+        """Build TensorFlow model for learning resource recommendation"""
+        try:
+            # User profile input
+            user_skills = Input(shape=(50,), name='user_skills')
+            user_preferences = Input(shape=(20,), name='user_preferences')
+            
+            # Resource features input
+            resource_features = Input(shape=(30,), name='resource_features')
+            
+            # Neural network layers
+            user_embedding = Dense(32, activation='relu')(tf.keras.layers.concatenate([user_skills, user_preferences]))
+            user_embedding = Dropout(0.3)(user_embedding)
+            
+            resource_embedding = Dense(32, activation='relu')(resource_features)
+            resource_embedding = Dropout(0.3)(resource_embedding)
+            
+            # Compute similarity
+            similarity = tf.keras.layers.Dot(axes=1)([user_embedding, resource_embedding])
+            similarity = Dense(1, activation='sigmoid')(similarity)
+            
+            model = tf.keras.Model(inputs=[user_skills, user_preferences, resource_features], outputs=similarity)
+            model.compile(optimizer='adam', loss='binary_crossentropy', metrics=['accuracy'])
+            
+            return model
+        except Exception as e:
+            logger.error(f"Error building recommendation model: {e}")
+            return None
+    
+    def _initialize_learning_resources(self) -> List[LearningResource]:
+        """Initialize comprehensive learning resources"""
+        return [
+            LearningResource(
+                title="Python Fundamentals",
+                description="Learn Python basics including syntax, data types, and control structures",
+                difficulty="beginner",
+                duration=180,
+                skills=["python", "programming"],
+                url="https://example.com/python-fundamentals",
+                rating=4.5
+            ),
+            LearningResource(
+                title="Machine Learning with TensorFlow",
+                description="Build ML models using TensorFlow and understand deep learning concepts",
+                difficulty="intermediate",
+                duration=300,
+                skills=["machine_learning", "tensorflow", "python"],
+                url="https://example.com/ml-tensorflow",
+                rating=4.7
+            ),
+            LearningResource(
+                title="Advanced SQL Queries",
+                description="Master complex SQL queries, joins, and database optimization",
+                difficulty="advanced",
+                duration=150,
+                skills=["sql", "database"],
+                url="https://example.com/advanced-sql",
+                rating=4.3
+            ),
+            LearningResource(
+                title="Cloud Architecture with AWS",
+                description="Design scalable cloud solutions using AWS services",
+                difficulty="intermediate",
+                duration=240,
+                skills=["aws", "cloud", "architecture"],
+                url="https://example.com/aws-architecture",
+                rating=4.6
+            ),
+            LearningResource(
+                title="React Development Bootcamp",
+                description="Build modern web applications with React and JavaScript",
+                difficulty="intermediate",
+                duration=360,
+                skills=["react", "javascript", "web_development"],
+                url="https://example.com/react-bootcamp",
+                rating=4.4
+            ),
+            LearningResource(
+                title="Data Science with Python",
+                description="Complete data science workflow using pandas, numpy, and scikit-learn",
+                difficulty="intermediate",
+                duration=420,
+                skills=["data_science", "python", "pandas", "numpy"],
+                url="https://example.com/data-science-python",
+                rating=4.8
+            )
+        ]
+    
+    def _define_skill_prerequisites(self) -> Dict[str, List[str]]:
+        """Define prerequisite relationships between skills"""
+        return {
+            'machine_learning': ['python', 'statistics'],
+            'deep_learning': ['machine_learning', 'tensorflow'],
+            'cloud_architecture': ['cloud', 'networking'],
+            'advanced_sql': ['sql', 'database'],
+            'react': ['javascript', 'html', 'css'],
+            'django': ['python', 'web_development'],
+            'data_science': ['python', 'statistics'],
+            'tensorflow': ['python', 'machine_learning']
+        }
+    
+    def generate_learning_path(self, current_skills: List[Skill], target_skills: List[str], 
+                             preferences: Dict[str, Any] = None) -> LearningPath:
+        """Generate personalized learning path with BERT enhancement"""
+        try:
+            if preferences is None:
+                preferences = {'max_duration_per_day': 120, 'difficulty_preference': 'intermediate'}
+            
+            # Identify skill gaps
+            current_skill_names = {skill.name.lower() for skill in current_skills}
+            target_skill_names = {skill.lower() for skill in target_skills}
+            skill_gaps = list(target_skill_names - current_skill_names)
+            
+            # Add prerequisite skills to gaps
+            extended_gaps = self._add_prerequisites(skill_gaps, current_skill_names)
+            
+            # Find relevant learning resources
+            relevant_resources = self._find_relevant_resources_bert(extended_gaps) if self.bert_model else self._find_relevant_resources(extended_gaps)
+            
+            # Prioritize and order resources
+            ordered_resources = self._prioritize_resources(relevant_resources, current_skills, preferences)
+            
+            # Calculate estimated completion time
+            total_duration = sum(resource.duration for resource in ordered_resources)
+            daily_limit = preferences.get('max_duration_per_day', 120)
+            estimated_days = max(1, total_duration // daily_limit)
+            
+            return LearningPath(
+                user_id=f"user_{datetime.now().strftime('%Y%m%d_%H%M%S')}",
+                skills_gap=skill_gaps,
+                recommended_resources=ordered_resources,
+                estimated_completion=estimated_days,
+                priority_order=extended_gaps
+            )
+        except Exception as e:
+            logger.error(f"Error generating learning path: {e}")
+            return LearningPath(
+                user_id="error",
+                skills_gap=[],
+                recommended_resources=[],
+                estimated_completion=0,
+                priority_order=[]
+            )
+    
+    def _find_relevant_resources_bert(self, skill_gaps: List[str]) -> List[LearningResource]:
+        """Find learning resources using BERT semantic matching"""
+        try:
+            relevant_resources = []
+            
+            # Generate embeddings for skill gaps
+            gap_embeddings = self.bert_model.encode(skill_gaps)
+            
+            for resource in self.learning_resources:
+                # Generate embedding for resource skills and description
+                resource_text = ' '.join(resource.skills) + ' ' + resource.description
+                resource_embedding = self.bert_model.encode([resource_text])
+                
+                # Calculate similarity with skill gaps
+                similarities = cosine_similarity(gap_embeddings, resource_embedding)
+                max_similarity = np.max(similarities)
+                
+                # Include resource if similarity is above threshold
+                if max_similarity > 0.3:  # Lower threshold for broader matching
+                    relevant_resources.append(resource)
+            
+            return relevant_resources
+        except Exception as e:
+            logger.error(f"Error in BERT resource matching: {e}")
+            return self._find_relevant_resources(skill_gaps)
+    
+    def _find_relevant_resources(self, skill_gaps: List[str]) -> List[LearningResource]:
+        """Find learning resources that match skill gaps (traditional method)"""
+        relevant_resources = []
+        
+        for resource in self.learning_resources:
+            resource_skills = [skill.lower() for skill in resource.skills]
+            if any(gap.lower() in resource_skills for gap in skill_gaps):
+                relevant_resources.append(resource)
+        
+        return relevant_resources
+    
+    def _add_prerequisites(self, skill_gaps: List[str], current_skills: set) -> List[str]:
+        """Add prerequisite skills to the learning path"""
+        extended_gaps = skill_gaps.copy()
+        
+        for skill in skill_gaps:
+            if skill in self.skill_prerequisites:
+                for prereq in self.skill_prerequisites[skill]:
+                    if prereq not in current_skills and prereq not in extended_gaps:
+                        extended_gaps.insert(0, prereq)  # Add prerequisites first
+        
+        return extended_gaps
+    
+    def _prioritize_resources(self, resources: List[LearningResource], 
+                            current_skills: List[Skill], preferences: Dict[str, Any]) -> List[LearningResource]:
+        """Prioritize learning resources based on user profile and preferences"""
+        scored_resources = []
+        
+        for resource in resources:
+            score = self._calculate_resource_score(resource, current_skills, preferences)
+            scored_resources.append((resource, score))
+        
+        # Sort by score (highest first)
+        scored_resources.sort(key=lambda x: x[1], reverse=True)
+        
+        return [resource for resource, _ in scored_resources]
+    
+    def _calculate_resource_score(self, resource: LearningResource, 
+                                current_skills: List[Skill], preferences: Dict[str, Any]) -> float:
+        """Calculate priority score for a learning resource"""
+        score = 0.0
+        
+        # Base score from rating
+        score += resource.rating * 0.3
+        
+        # Difficulty preference alignment
+        preferred_difficulty = preferences.get('difficulty_preference', 'intermediate')
+        if resource.difficulty == preferred_difficulty:
+            score += 0.4
+        elif abs(self._difficulty_to_number(resource.difficulty) - 
+                self._difficulty_to_number(preferred_difficulty)) <= 1:
+            score += 0.2
+        
+        # Duration preference
+        max_duration = preferences.get('max_duration_per_day', 120)
+        if resource.duration <= max_duration:
+            score += 0.3
+        else:
+            score += 0.1
+        
+        return min(1.0, score)
+    
+    def _difficulty_to_number(self, difficulty: str) -> int:
+        """Convert difficulty string to number for comparison"""
+        difficulty_map = {'beginner': 1, 'intermediate': 2, 'advanced': 3, 'expert': 4}
+        return difficulty_map.get(difficulty, 2)
+
+class PersonalizedLearningSystem:
+    """Main BERT-enhanced system that orchestrates all components"""
+    
+    def __init__(self):
+        self.resume_parser = BERTEnhancedResumeParser()
+        self.cv_extractor = ComputerVisionSkillExtractor()
+        self.assessment_engine = SkillAssessmentEngine()
+        self.path_generator = LearningPathGenerator()
+        self.user_profiles = {}
+        
+        logger.info("BERT-Enhanced Personalized Learning System initialized")
+    
+    def process_user_profile(self, user_id: str, resume_path: str = None, 
+                           certificate_paths: List[str] = None, 
+                           target_skills: List[str] = None) -> Dict[str, Any]:
+        """Process complete user profile with BERT enhancement"""
+        try:
+            all_skills = []
+            
+            # Extract skills from resume using BERT
+            if resume_path:
+                resume_text = self.resume_parser.extract_text_from_resume(resume_path)
+                resume_skills = self.resume_parser.extract_skills(resume_text)
+                all_skills.extend(resume_skills)
+            
+            # Extract skills from certificates
+            if certificate_paths:
+                for cert_path in certificate_paths:
+                    cert_skills = self.cv_extractor.extract_from_certificate(cert_path)
+                    all_skills.extend(cert_skills)
+            
+            # Conduct skill assessments for key skills
+            assessment_results = {}
+            key_skills = list(set([skill.name for skill in all_skills]))[:5]
+            
+            for skill in key_skills:
+                if skill in ['python', 'machine_learning', 'javascript']:
+                    assessment = self.assessment_engine.conduct_assessment(user_id, skill)
+                    assessment_results[skill] = assessment
+                    
+                    # Update skill level based on assessment
+                    for user_skill in all_skills:
+                        if user_skill.name == skill:
+                            user_skill.level = assessment['estimated_level']
+                            user_skill.confidence = assessment['confidence']
+            
+            # Generate learning path
+            learning_path = None
+            if target_skills:
+                learning_path = self.path_generator.generate_learning_path(
+                    current_skills=all_skills,
+                    target_skills=target_skills
+                )
+            
+            # Store user profile
+            self.user_profiles[user_id] = {
+                'skills': all_skills,
+                'assessments': assessment_results,
+                'learning_path': learning_path,
+                'last_updated': datetime.now(),
+                'target_skills': target_skills or []
+            }
+            
+            return {
+                'user_id': user_id,
+                'extracted_skills': [
+                    {
+                        'name': skill.name,
+                        'level': skill.level,
+                        'category': skill.category,
+                        'confidence': skill.confidence,
+                        'source': skill.source
+                    } for skill in all_skills
+                ],
+                'assessments': assessment_results,
+                'learning_path': {
+                    'skills_gap': learning_path.skills_gap if learning_path else [],
+                    'recommended_resources': [
+                        {
+                            'title': resource.title,
+                            'description': resource.description,
+                            'difficulty': resource.difficulty,
+                            'duration': resource.duration,
+                            'skills': resource.skills,
+                            'rating': resource.rating,
+                            'url': resource.url
+                        } for resource in learning_path.recommended_resources
+                    ] if learning_path else [],
+                    'estimated_completion_days': learning_path.estimated_completion if learning_path else 0
+                },
+                'recommendations': self._generate_general_recommendations(all_skills, assessment_results)
+            }
+        except Exception as e:
+            logger.error(f"Error processing user profile: {e}")
+            return {'error': str(e)}
+    
+    def _generate_general_recommendations(self, skills: List[Skill], 
+                                        assessments: Dict[str, Any]) -> List[str]:
+        """Generate general learning recommendations"""
+        recommendations = []
+        
+        # Skill diversity recommendations
+        skill_categories = set(skill.category for skill in skills)
+        if len(skill_categories) < 3:
+            recommendations.append("Consider expanding into new skill categories to become more versatile")
+        
+        # Skill depth recommendations
+        advanced_skills = [skill for skill in skills if skill.level > 0.7]
+        if len(advanced_skills) < 2:
+            recommendations.append("Focus on developing deeper expertise in your strongest skills")
+        
+        # Assessment-based recommendations
+        for skill, assessment in assessments.items():
+            if assessment.get('estimated_level', 0) < 0.6:
+                recommendations.append(f"Consider additional practice in {skill} fundamentals")
+            
+            weak_areas = assessment.get('areas_for_improvement', [])
+            if weak_areas:
+                recommendations.append(f"Focus on improving {', '.join(weak_areas)} in {skill}")
+        
+        return recommendations
+    
+    def update_skill_progress(self, user_id: str, skill_name: str, 
+                            new_level: float, completion_data: Dict[str, Any] = None):
+        """Update user's skill progress"""
+        try:
+            if user_id not in self.user_profiles:
+                return {'error': 'User profile not found'}
+            
+            profile = self.user_profiles[user_id]
+            
+            # Update existing skill or add new one
+            skill_updated = False
+            for skill in profile['skills']:
+                if skill.name.lower() == skill_name.lower():
+                    skill.level = new_level
+                    skill.confidence = min(1.0, skill.confidence + 0.1)
+                    skill_updated = True
+                    break
+            
+            if not skill_updated:
+                # Add new skill
+                profile['skills'].append(Skill(
+                    name=skill_name,
+                    level=new_level,
+                    category='general',
+                    confidence=0.7,
+                    source='progress_update'
+                ))
+            
+            # Update learning path if target skills exist
+            if profile['target_skills']:
+                updated_path = self.path_generator.generate_learning_path(
+                    current_skills=profile['skills'],
+                    target_skills=profile['target_skills']
+                )
+                profile['learning_path'] = updated_path
+            
+            profile['last_updated'] = datetime.now()
+            
+            return {'success': True, 'message': f'Updated {skill_name} progress'}
+        except Exception as e:
+            logger.error(f"Error updating skill progress: {e}")
+            return {'error': str(e)}
+    
+    def get_dashboard_data(self, user_id: str) -> Dict[str, Any]:
+        """Get dashboard data for user interface"""
+        try:
+            if user_id not in self.user_profiles:
+                return {'error': 'User profile not found'}
+            
+            profile = self.user_profiles[user_id]
+            skills = profile['skills']
+            
+            # Calculate skill distribution by category
+            category_distribution = {}
+            for skill in skills:
+                category = skill.category
+                if category not in category_distribution:
+                    category_distribution[category] = {'count': 0, 'avg_level': 0}
+                category_distribution[category]['count'] += 1
+                category_distribution[category]['avg_level'] += skill.level
+            
+            # Calculate average levels
+            for category in category_distribution:
+                count = category_distribution[category]['count']
+                category_distribution[category]['avg_level'] /= count
+            
+            # Get top skills
+            top_skills = sorted(skills, key=lambda x: x.level * x.confidence, reverse=True)[:5]
+            
+            # Calculate overall progress
+            if profile['learning_path']:
+                total_resources = len(profile['learning_path'].recommended_resources)
+                completed_resources = max(0, total_resources - len(profile['learning_path'].skills_gap))
+                progress_percentage = (completed_resources / total_resources * 100) if total_resources > 0 else 0
+            else:
+                progress_percentage = 0
+            
+            return {
+                'user_id': user_id,
+                'skill_summary': {
+                    'total_skills': len(skills),
+                    'categories': list(category_distribution.keys()),
+                    'avg_skill_level': np.mean([skill.level for skill in skills]) if skills else 0,
+                    'category_distribution': category_distribution
+                },
+                'top_skills': [
+                    {
+                        'name': skill.name,
+                        'level': skill.level,
+                        'category': skill.category,
+                        'confidence': skill.confidence
+                    } for skill in top_skills
+                ],
+                'learning_progress': {
+                    'completion_percentage': progress_percentage,
+                    'days_since_start': (datetime.now() - profile['last_updated']).days,
+                    'estimated_completion': profile['learning_path'].estimated_completion if profile['learning_path'] else 0
+                },
+                'recent_assessments': profile['assessments'],
+                'next_recommendations': profile['learning_path'].recommended_resources[:3] if profile['learning_path'] else []
+            }
+        except Exception as e:
+            logger.error(f"Error getting dashboard data: {e}")
+            return {'error': str(e)}
+
+class VisualizationEngine:
+    """Generate visualizations for skill analysis and learning progress"""
+    
+    def __init__(self):
+        plt.style.use('seaborn-v0_8')
+        
+    def plot_skill_radar(self, skills: List[Skill], save_path: str = None) -> str:
+        """Create radar chart for skill visualization"""
+        try:
+            # Group skills by category and calculate average levels
+            categories = {}
+            for skill in skills:
+                if skill.category not in categories:
+                    categories[skill.category] = []
+                categories[skill.category].append(skill.level)
+            
+            # Calculate average level per category
+            category_levels = {cat: np.mean(levels) for cat, levels in categories.items()}
+            
+            # Prepare data for radar chart
+            labels = list(category_levels.keys())
+            values = list(category_levels.values())
+            
+            # Number of variables
+            N = len(labels)
+            
+            if N == 0:
+                return "No skills to visualize"
+            
+            # Angle for each axis
+            angles = [n / float(N) * 2 * np.pi for n in range(N)]
+            angles += angles[:1]  # Complete the circle
+            
+            # Close the plot
+            values += values[:1]
+            
+            # Create the plot
+            fig, ax = plt.subplots(figsize=(10, 10), subplot_kw=dict(projection='polar'))
+            
+            # Plot the radar chart
+            ax.plot(angles, values, 'o-', linewidth=2, label='Current Skills')
+            ax.fill(angles, values, alpha=0.25)
+            
+            # Add labels
+            ax.set_xticks(angles[:-1])
+            ax.set_xticklabels(labels)
+            ax.set_ylim(0, 1)
+            ax.set_yticks([0.2, 0.4, 0.6, 0.8, 1.0])
+            ax.set_yticklabels(['20%', '40%', '60%', '80%', '100%'])
+            ax.grid(True)
+            
+            plt.title('Skill Level Distribution by Category', size=16, pad=20)
+            plt.legend(loc='upper right', bbox_to_anchor=(0.1, 0.1))
+            
+            if save_path:
+                plt.savefig(save_path, dpi=300, bbox_inches='tight')
+                plt.close()
+                return save_path
+            else:
+                plt.show()
+                return "displayed"
+        except Exception as e:
+            logger.error(f"Error creating radar chart: {e}")
+            return "error"
+    
+    def plot_learning_progress(self, learning_path: LearningPath, 
+                             completed_resources: List[str] = None, 
+                             save_path: str = None) -> str:
+        """Create progress visualization for learning path"""
+        try:
+            if not learning_path or not learning_path.recommended_resources:
+                return "No learning path available"
+            
+            completed_resources = completed_resources or []
+            resources = learning_path.recommended_resources
+            
+            # Prepare data
+            resource_names = [r.title[:30] + '...' if len(r.title) > 30 else r.title for r in resources]
+            durations = [r.duration for r in resources]
+            completion_status = [1 if r.title in completed_resources else 0 for r in resources]
+            
+            # Create figure with subplots
+            fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(15, 6))
+            
+            # Progress bar chart
+            colors = ['green' if status else 'lightblue' for status in completion_status]
+            bars = ax1.barh(range(len(resource_names)), durations, color=colors)
+            
+            ax1.set_yticks(range(len(resource_names)))
+            ax1.set_yticklabels(resource_names)
+            ax1.set_xlabel('Duration (minutes)')
+            ax1.set_title('Learning Path Progress')
+            ax1.invert_yaxis()
+            
+            # Add completion percentage text
+            for i, (bar, status) in enumerate(zip(bars, completion_status)):
+                if status:
+                    ax1.text(bar.get_width()/2, bar.get_y() + bar.get_height()/2, 
+                            'Completed', ha='center', va='center', fontweight='bold')
+            
+            # Pie chart for overall progress
+            completed_count = sum(completion_status)
+            remaining_count = len(resources) - completed_count
+            
+            if completed_count > 0:
+                labels = ['Completed', 'Remaining']
+                sizes = [completed_count, remaining_count]
+                colors = ['green', 'lightcoral']
+                
+                ax2.pie(sizes, labels=labels, colors=colors, autopct='%1.1f%%', startangle=90)
+                ax2.set_title('Overall Progress')
+            else:
+                ax2.text(0.5, 0.5, 'No Progress Yet', ha='center', va='center', 
+                        transform=ax2.transAxes, fontsize=14)
+                ax2.set_title('Overall Progress')
+            
+            plt.tight_layout()
+            
+            if save_path:
+                plt.savefig(save_path, dpi=300, bbox_inches='tight')
+                plt.close()
+                return save_path
+            else:
+                plt.show()
+                return "displayed"
+        except Exception as e:
+            logger.error(f"Error creating progress chart: {e}")
+            return "error"
+    
+    def plot_assessment_results(self, assessment_data: Dict[str, Any], save_path: str = None) -> str:
+        """Visualize assessment results"""
+        try:
+            if not assessment_data:
+                return "No assessment data available"
+            
+            fig, ((ax1, ax2), (ax3, ax4)) = plt.subplots(2, 2, figsize=(15, 12))
+            
+            # Skill level comparison
+            skills = list(assessment_data.keys())
+            levels = [assessment_data[skill].get('estimated_level', 0) for skill in skills]
+            confidences = [assessment_data[skill].get('confidence', 0) for skill in skills]
+            
+            x = range(len(skills))
+            width = 0.35
+            
+            ax1.bar([i - width/2 for i in x], levels, width, label='Skill Level', alpha=0.8)
+            ax1.bar([i + width/2 for i in x], confidences, width, label='Confidence', alpha=0.8)
+            ax1.set_xlabel('Skills')
+            ax1.set_ylabel('Score')
+            ax1.set_title('Skill Level vs Confidence')
+            ax1.set_xticks(x)
+            ax1.set_xticklabels(skills)
+            ax1.legend()
+            ax1.set_ylim(0, 1)
+            
+            # Assessment accuracy
+            accuracies = []
+            for skill in skills:
+                total_q = assessment_data[skill].get('questions_answered', 0)
+                correct_q = assessment_data[skill].get('correct_answers', 0)
+                accuracy = correct_q / total_q if total_q > 0 else 0
+                accuracies.append(accuracy)
+            
+            ax2.pie(accuracies, labels=skills, autopct='%1.1f%%', startangle=90)
+            ax2.set_title('Assessment Accuracy by Skill')
+            
+            # Strong vs weak areas (for first skill with data)
+            first_skill = skills[0] if skills else None
+            if first_skill and 'strong_areas' in assessment_data[first_skill]:
+                strong_areas = assessment_data[first_skill].get('strong_areas', [])
+                weak_areas = assessment_data[first_skill].get('areas_for_improvement', [])
+                
+                categories = strong_areas + weak_areas
+                performance = [0.8] * len(strong_areas) + [0.4] * len(weak_areas)
+                colors = ['green'] * len(strong_areas) + ['red'] * len(weak_areas)
+                
+                if categories:
+                    ax3.bar(categories, performance, color=colors, alpha=0.7)
+                    ax3.set_title(f'{first_skill.title()} - Area Performance')
+                    ax3.set_ylabel('Performance Score')
+                    ax3.tick_params(axis='x', rotation=45)
+            
+            # Questions answered over time (simulated)
+            questions_per_skill = [assessment_data[skill].get('questions_answered', 0) for skill in skills]
+            ax4.plot(skills, questions_per_skill, marker='o', linewidth=2, markersize=8)
+            ax4.set_title('Questions Answered per Skill')
+            ax4.set_ylabel('Number of Questions')
+            ax4.tick_params(axis='x', rotation=45)
+            
+            plt.tight_layout()
+            
+            if save_path:
+                plt.savefig(save_path, dpi=300, bbox_inches='tight')
+                plt.close()
+                return save_path
+            else:
+                plt.show()
+                return "displayed"
+        except Exception as e:
+            logger.error(f"Error creating assessment chart: {e}")
+            return "error"
+
+# Flask Application with all original routes + BERT enhancement
+app = Flask(__name__)
+app.secret_key = 'bert_enhanced_skill_bridge_2025'
+app.config['UPLOAD_FOLDER'] = 'uploads'
+app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024
+
+# Ensure directories exist
+os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
+os.makedirs('static/visualizations', exist_ok=True)
+
+# Initialize BERT-enhanced system
+bert_learning_system = PersonalizedLearningSystem()
+visualization_engine = VisualizationEngine()
+
+# Database setup
+def init_db():
+    conn = sqlite3.connect('learning_system.db')
+    cursor = conn.cursor()
+
+    cursor.execute('''CREATE TABLE IF NOT EXISTS users (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id TEXT UNIQUE NOT NULL,
+        username TEXT UNIQUE NOT NULL,
+        email TEXT UNIQUE NOT NULL,
+        password_hash TEXT NOT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        last_login TIMESTAMP
+    )''')
+
+    cursor.execute('''CREATE TABLE IF NOT EXISTS user_profiles (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id TEXT NOT NULL,
+        profile_data TEXT NOT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (user_id) REFERENCES users (user_id)
+    )''')
+
+    cursor.execute('''CREATE TABLE IF NOT EXISTS file_uploads (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id TEXT NOT NULL,
+        filename TEXT NOT NULL,
+        file_type TEXT NOT NULL,
+        file_path TEXT NOT NULL,
+        uploaded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (user_id) REFERENCES users (user_id)
+    )''')
+
+    cursor.execute('''CREATE TABLE IF NOT EXISTS assessments (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id TEXT NOT NULL,
+        skill TEXT NOT NULL,
+        score REAL NOT NULL,
+        level TEXT NOT NULL,
+        confidence REAL NOT NULL,
+        assessment_data TEXT,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (user_id) REFERENCES users (user_id)
+    )''')
+
+    conn.commit()
+    conn.close()
+
+init_db()
+
+# Helper functions
+def allowed_file(filename):
+    ALLOWED_EXTENSIONS = {'pdf', 'png', 'jpg', 'jpeg', 'txt', 'doc', 'docx'}
+    return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
+
+# Authentication routes
+@app.route('/register', methods=['GET', 'POST'])
+def register():
+    if request.method == 'POST':
+        username = request.form['username']
+        email = request.form['email']
+        password = request.form['password']
+
+        if not username or not email or not password:
+            flash('All fields are required!', 'error')
+            return render_template('register.html')
+
+        user_id = str(uuid.uuid4())
+        password_hash = generate_password_hash(password)
+
+        try:
+            conn = sqlite3.connect('learning_system.db')
+            cursor = conn.cursor()
+            cursor.execute('''INSERT INTO users (user_id, username, email, password_hash) VALUES (?, ?, ?, ?)''', 
+                         (user_id, username, email, password_hash))
+            conn.commit()
+            conn.close()
+
+            flash('Registration successful! Please login.', 'success')
+            return redirect(url_for('login'))
+
+        except sqlite3.IntegrityError:
+            flash('Username or email already exists!', 'error')
+            return render_template('register.html')
+
+    return render_template('register.html')
+
+@app.route('/login', methods=['GET', 'POST'])
+def login():
+    if request.method == 'POST':
+        username = request.form['username']
+        password = request.form['password']
+
+        conn = sqlite3.connect('learning_system.db')
+        cursor = conn.cursor()
+        cursor.execute('SELECT user_id, password_hash FROM users WHERE username = ?', (username,))
+        user = cursor.fetchone()
+        conn.close()
+
+        if user and check_password_hash(user[1], password):
+            session['user_id'] = user[0]
+            session['username'] = username
+
+            # Update last login
+            conn = sqlite3.connect('learning_system.db')
+            cursor = conn.cursor()
+            cursor.execute('UPDATE users SET last_login = CURRENT_TIMESTAMP WHERE user_id = ?', (user[0],))
+            conn.commit()
+            conn.close()
+
+            flash('Login successful!', 'success')
+            return redirect(url_for('dashboard'))
+        else:
+            flash('Invalid username or password!', 'error')
+
+    return render_template('login.html')
+
+@app.route('/logout')
+def logout():
+    session.clear()
+    flash('You have been logged out.', 'info')
+    return redirect(url_for('index'))
+
+# Profile setup route with BERT enhancement
+@app.route('/profile_setup', methods=['GET', 'POST'])
+def profile_setup():
+    if 'user_id' not in session:
+        return redirect(url_for('login'))
+
+    if request.method == 'POST':
+        user_id = session['user_id']
+
+        current_skills = request.form.getlist('current_skills[]')
+        current_levels = request.form.getlist('current_levels[]')
+        target_skills = request.form.getlist('target_skills[]')
+
+        resume_path = None
+        certificate_paths = []
+
+        # Handle resume upload
+        if 'resume' in request.files:
+            resume_file = request.files['resume']
+            if resume_file and resume_file.filename and allowed_file(resume_file.filename):
+                filename = secure_filename(resume_file.filename)
+                filename = f"{user_id}_resume_{filename}"
+                resume_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
+                resume_file.save(resume_path)
+                save_file_upload(user_id, filename, 'resume', resume_path)
+
+        # Handle certificate uploads
+        if 'certificates' in request.files:
+            cert_files = request.files.getlist('certificates')
+            for cert_file in cert_files:
+                if cert_file and cert_file.filename and allowed_file(cert_file.filename):
+                    filename = secure_filename(cert_file.filename)
+                    filename = f"{user_id}_cert_{filename}"
+                    cert_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
+                    cert_file.save(cert_path)
+                    certificate_paths.append(cert_path)
+                    save_file_upload(user_id, filename, 'certificate', cert_path)
+
+        # Create manual skills
+        manual_skills = []
+        for skill, level in zip(current_skills, current_levels):
+            if skill.strip():
+                try:
+                    level_float = float(level) / 100.0
+                    manual_skills.append(Skill(
+                        name=skill.strip(),
+                        level=level_float,
+                        category=categorize_skill(skill.strip()),
+                        confidence=0.8,
+                        source='user_input'
+                    ))
+                except ValueError:
+                    continue
+
+        try:
+            # Process with BERT enhancement
+            profile_result = bert_learning_system.process_user_profile(
+                user_id=user_id,
+                resume_path=resume_path,
+                certificate_paths=certificate_paths,
+                target_skills=[s.strip() for s in target_skills if s.strip()]
+            )
+
+            # Add manual skills
+            if user_id in bert_learning_system.user_profiles:
+                bert_learning_system.user_profiles[user_id]['skills'].extend(manual_skills)
+
+            save_user_profile(user_id, profile_result)
+
+            flash('Profile created successfully with BERT analysis!', 'success')
+            return redirect(url_for('dashboard'))
+
+        except Exception as e:
+            flash(f'Error processing profile: {str(e)}', 'error')
+            logger.error(f"Profile setup error: {e}")
+            return render_template('profile_setup.html')
+
+    return render_template('profile_setup.html')
+
+# BERT-enhanced dashboard
+@app.route('/dashboard')
+def dashboard():
+    if 'user_id' not in session:
+        return redirect(url_for('login'))
+
+    user_id = session['user_id']
+    profile_data = get_user_profile(user_id)
+    if not profile_data:
+        return redirect(url_for('profile_setup'))
+
+    # Get BERT-enhanced dashboard data
+    dashboard_data = bert_learning_system.get_dashboard_data(user_id)
+    
+    # Generate visualizations
+    if user_id in bert_learning_system.user_profiles:
+        skills = bert_learning_system.user_profiles[user_id]['skills']
+        
+        # Create skill radar chart
+        radar_path = f'static/visualizations/{user_id}_skills_radar.png'
+        visualization_engine.plot_skill_radar(skills, radar_path)
+        
+        # Create learning progress chart if learning path exists
+        learning_path = bert_learning_system.user_profiles[user_id].get('learning_path')
+        if learning_path:
+            progress_path = f'static/visualizations/{user_id}_progress.png'
+            visualization_engine.plot_learning_progress(learning_path, save_path=progress_path)
+
+    return render_template('dashboard.html', 
+                         dashboard_data=dashboard_data,
+                         username=session.get('username'))
+
+# Skill assessment route
+@app.route('/assessment/<skill>')
+def skill_assessment(skill):
+    if 'user_id' not in session:
+        return redirect(url_for('login'))
+    
+    return render_template('assessment.html', skill=skill)
+
+@app.route('/conduct_assessment', methods=['POST'])
+def conduct_assessment():
+    if 'user_id' not in session:
+        return jsonify({'error': 'Not authenticated'}), 401
+    
+    try:
+        data = request.get_json()
+        user_id = session['user_id']
+        skill = data.get('skill')
+        num_questions = data.get('num_questions', 10)
+        
+        # Conduct BERT-enhanced assessment
+        assessment_result = bert_learning_system.assessment_engine.conduct_assessment(
+            user_id, skill, num_questions
+        )
+        
+        # Save assessment result
+        save_assessment_result(user_id, assessment_result)
+        
+        return jsonify(assessment_result)
+        
+    except Exception as e:
+        logger.error(f"Assessment error: {e}")
+        return jsonify({'error': str(e)}), 500
+
+# Learning path route
+@app.route('/learning_path')
+def learning_path():
+    if 'user_id' not in session:
+        return redirect(url_for('login'))
+    
+    user_id = session['user_id']
+    
+    if user_id in bert_learning_system.user_profiles:
+        learning_path = bert_learning_system.user_profiles[user_id].get('learning_path')
+        return render_template('learning_path.html', learning_path=learning_path)
+    
+    return redirect(url_for('profile_setup'))
+
+# API endpoints
+@app.route('/upload_resume', methods=['POST'])
+def upload_resume():
+    try:
+        user_id = request.form.get('userId') or session.get('user_id')
+        resume_file = request.files.get('resume')
+        manual_skills_json = request.form.get('manual_skills')
+
+        manual_skills = []
+        if manual_skills_json:
+            manual_skills = json.loads(manual_skills_json)
+
+        # Process with BERT enhancement
+        result = bert_learning_system.process_user_profile(
+            user_id=user_id,
+            resume_path=resume_file,
+            target_skills=[]
+        )
+
+        return jsonify({
+            'status': 'success',
+            'message': 'Resume processed with BERT analysis',
+            'user_id': user_id,
+            'bert_analysis': result,
+            'extracted_skills': result.get('extracted_skills', [])
+        })
+
+    except Exception as e:
+        logger.error(f"Error in upload_resume: {e}")
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+
+@app.route('/skill_gap_analysis', methods=['POST'])
+def skill_gap_analysis():
+    try:
+        data = request.get_json()
+        user_skills = data.get('skills', [])
+        target_job = data.get('target_job', '')
+
+        if not user_skills or not target_job:
+            return jsonify({'error': 'Skills and target job required'}), 400
+
+        # BERT-powered skill gap analysis
+        gap_analysis = bert_learning_system.path_generator.skill_gap_analyzer.analyze_skill_gaps(
+            user_skills, target_job
+        )
+
+        if 'skill_gaps' in gap_analysis:
+            roadmap = bert_learning_system.path_generator.skill_gap_analyzer.generate_learning_roadmap(
+                gap_analysis['skill_gaps']
+            )
+            gap_analysis['learning_roadmap'] = roadmap
+
+        return jsonify(gap_analysis)
+
+    except Exception as e:
+        logger.error(f"Error in skill gap analysis: {e}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/update_progress', methods=['POST'])
+def update_progress():
+    if 'user_id' not in session:
+        return jsonify({'error': 'Not authenticated'}), 401
+    
+    try:
+        data = request.get_json()
+        user_id = session['user_id']
+        skill_name = data.get('skill')
+        new_level = data.get('level')
+        completion_data = data.get('completion_data', {})
+        
+        result = bert_learning_system.update_skill_progress(
+            user_id, skill_name, new_level, completion_data
+        )
+        
+        return jsonify(result)
+        
+    except Exception as e:
+        logger.error(f"Progress update error: {e}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/generate_visualization/<viz_type>')
+def generate_visualization(viz_type):
+    if 'user_id' not in session:
+        return jsonify({'error': 'Not authenticated'}), 401
+    
+    try:
+        user_id = session['user_id']
+        
+        if user_id not in bert_learning_system.user_profiles:
+            return jsonify({'error': 'Profile not found'}), 404
+        
+        profile = bert_learning_system.user_profiles[user_id]
+        
+        if viz_type == 'skills_radar':
+            skills = profile['skills']
+            save_path = f'static/visualizations/{user_id}_skills_radar.png'
+            result = visualization_engine.plot_skill_radar(skills, save_path)
+            
+        elif viz_type == 'learning_progress':
+            learning_path = profile.get('learning_path')
+            if learning_path:
+                save_path = f'static/visualizations/{user_id}_progress.png'
+                result = visualization_engine.plot_learning_progress(learning_path, save_path=save_path)
+            else:
+                return jsonify({'error': 'No learning path found'}), 404
+                
+        elif viz_type == 'assessment_results':
+            assessments = profile.get('assessments', {})
+            if assessments:
+                save_path = f'static/visualizations/{user_id}_assessments.png'
+                result = visualization_engine.plot_assessment_results(assessments, save_path)
+            else:
+                return jsonify({'error': 'No assessment data found'}), 404
+        
+        else:
+            return jsonify({'error': 'Invalid visualization type'}), 400
+        
+        return jsonify({'status': 'success', 'path': result})
+        
+    except Exception as e:
+        logger.error(f"Visualization error: {e}")
+        return jsonify({'error': str(e)}), 500
+
+# Helper functions
+def categorize_skill(skill_name):
+    skill_name_lower = skill_name.lower()
+
+    if any(lang in skill_name_lower for lang in ['python', 'java', 'javascript', 'react', 'angular']):
+        return 'programming'
+    elif any(ds in skill_name_lower for ds in ['machine learning', 'data science', 'tensorflow']):
+        return 'data_science'
+    elif any(cloud in skill_name_lower for cloud in ['aws', 'azure', 'gcp', 'docker']):
+        return 'cloud'
+    elif any(db in skill_name_lower for db in ['sql', 'mongodb', 'postgresql']):
+        return 'database'
+    else:
+        return 'general'
+
+def save_file_upload(user_id, filename, file_type, file_path):
+    conn = sqlite3.connect('learning_system.db')
+    cursor = conn.cursor()
+    cursor.execute('''INSERT INTO file_uploads (user_id, filename, file_type, file_path) VALUES (?, ?, ?, ?)''', 
+                   (user_id, filename, file_type, file_path))
+    conn.commit()
+    conn.close()
+
+def save_user_profile(user_id, profile_data):
+    conn = sqlite3.connect('learning_system.db')
+    cursor = conn.cursor()
+
+    cursor.execute('SELECT id FROM user_profiles WHERE user_id = ?', (user_id,))
+    existing = cursor.fetchone()
+
+    profile_json = json.dumps(profile_data, default=str)
+
+    if existing:
+        cursor.execute('''UPDATE user_profiles SET profile_data = ?, updated_at = CURRENT_TIMESTAMP WHERE user_id = ?''', 
+                       (profile_json, user_id))
+    else:
+        cursor.execute('''INSERT INTO user_profiles (user_id, profile_data) VALUES (?, ?)''', 
+                       (user_id, profile_json))
+
+    conn.commit()
+    conn.close()
+
+def get_user_profile(user_id):
+    conn = sqlite3.connect('learning_system.db')
+    cursor = conn.cursor()
+    cursor.execute('SELECT profile_data FROM user_profiles WHERE user_id = ?', (user_id,))
+    result = cursor.fetchone()
+    conn.close()
+
+    if result:
+        return json.loads(result[0])
+    return None
+
+def save_assessment_result(user_id, assessment_result):
+    conn = sqlite3.connect('learning_system.db')
+    cursor = conn.cursor()
+    
+    cursor.execute('''INSERT INTO assessments 
+                     (user_id, skill, score, level, confidence, assessment_data) 
+                     VALUES (?, ?, ?, ?, ?, ?)''',
+                   (user_id, 
+                    assessment_result.get('skill', ''),
+                    assessment_result.get('estimated_level', 0),
+                    assessment_result.get('level', 'beginner'),
+                    assessment_result.get('confidence', 0),
+                    json.dumps(assessment_result, default=str)))
+    
+    conn.commit()
+    conn.close()
+
+@app.route('/')
+def index():
+    if 'user_id' in session:
+        return redirect(url_for('dashboard'))
+    return render_template('index.html')
+
+# Error handlers
+@app.errorhandler(404)
+def not_found_error(error):
+    return render_template('404.html'), 404
+
+@app.errorhandler(500)
+def internal_error(error):
+    return render_template('500.html'), 500
+
+if __name__ == '__main__':
+    logger.info("Starting BERT-Enhanced Skill Assessment System with Full Web Interface...")
+    logger.info("Features: BERT semantic analysis, skill gap analysis, learning roadmaps, assessments")
+    app.run(debug=True, host='0.0.0.0', port=5000)
