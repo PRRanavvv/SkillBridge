@@ -63,7 +63,7 @@ SkillBridge isn't just another job portal. It's an intelligent ecosystem that un
 | Frontend | Backend | AI/ML | Database | Blockchain |
 |----------|---------|-------|----------|------------|
 | React.js | Python | TensorFlow | PostgreSQL | Ethereum |
-| TypeScript | FastAPI | OpenAI GPT | Redis | Solidity |
+| TypeScript | FastAPI | Gemini API | Redis | Solidity |
 | Tailwind CSS | Django | Computer Vision | MongoDB | Web3.js |
 
 ## 📈 The Problem We're Solving
