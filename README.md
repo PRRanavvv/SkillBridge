@@ -24,7 +24,7 @@ SkillBridge isn't just another job portal. It's an intelligent ecosystem that un
 ### 🤖 **AI-First Approach**
 - Dynamic skill assessments that adapt to user performance
 - Semantic job matching beyond keyword hunting
-- Personalized learning paths powered by machine learning
+- Personalized learning paths powered by machine learning 
 - **AI Chatbot Assistant** - 24/7 career guidance and instant query resolution *(Coming Soon!)*
 
 ### 🌐 **Built for India**
@@ -66,7 +66,7 @@ SkillBridge isn't just another job portal. It's an intelligent ecosystem that un
 
 ## 🛠️ Tech Stack
 
-<div align="center">
+<div>
 
 | Frontend | Backend | AI/ML | Database | Blockchain |
 |----------|---------|-------|----------|------------|
