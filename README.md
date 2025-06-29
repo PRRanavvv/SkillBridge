@@ -159,7 +159,7 @@ By launch, we aim to achieve:
 - **Scalable Architecture**: Built to handle millions of users from day one
 - **Continuous Learning**: AI that gets smarter with every interaction
 
-We're building this in the open! While we're in early development !!
+** We're building this in the open! While we're in early development !! **
 
 ### 📊 For Beta Testing
 We're looking for early adopters! If you're:
@@ -181,9 +181,9 @@ Interested in collaborating? We're open to:
 
 <div align="center">
 
-[![Email](https://img.shields.io/badge/Email-Contact_Us-red?style=for-the-badge&logo=gmail)](mailto:team@skillbridge.india)
-[![LinkedIn](https://img.shields.io/badge/LinkedIn-Follow_Updates-blue?style=for-the-badge&logo=linkedin)](https://linkedin.com/company/skillbridge-india)
-[![Twitter](https://img.shields.io/badge/Twitter-Latest_News-1DA1F2?style=for-the-badge&logo=twitter)](https://twitter.com/skillbridge_in)
+[![Email](https://img.shields.io/badge/Email-Contact_Us-red?style=for-the-badge&logo=gmail)](mailto:team@skillbridge.india) (soon!!)
+[![LinkedIn](https://img.shields.io/badge/LinkedIn-Follow_Updates-blue?style=for-the-badge&logo=linkedin)](https://linkedin.com/company/skillbridge-india) (soon!!)
+[![Twitter](https://img.shields.io/badge/Twitter-Latest_News-1DA1F2?style=for-the-badge&logo=twitter)](https://twitter.com/skillbridge_in) (soon!!)
 
 </div>
 
