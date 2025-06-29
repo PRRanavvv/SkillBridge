@@ -177,13 +177,13 @@ Interested in collaborating? We're open to:
 - Government employment schemes
 - Technology partners
 
-## 📞 Connect With Us
+## 📞 Connect With Us *(Soon!)*
 
 <div align="center">
 
-[![Email](https://img.shields.io/badge/Email-Contact_Us-red?style=for-the-badge&logo=gmail)](mailto:team@skillbridge.india) (soon!!)
-[![LinkedIn](https://img.shields.io/badge/LinkedIn-Follow_Updates-blue?style=for-the-badge&logo=linkedin)](https://linkedin.com/company/skillbridge-india) (soon!!)
-[![Twitter](https://img.shields.io/badge/Twitter-Latest_News-1DA1F2?style=for-the-badge&logo=twitter)](https://twitter.com/skillbridge_in) (soon!!)
+[![Email](https://img.shields.io/badge/Email-Contact_Us-red?style=for-the-badge&logo=gmail)](mailto:team@skillbridge.india) 
+[![LinkedIn](https://img.shields.io/badge/LinkedIn-Follow_Updates-blue?style=for-the-badge&logo=linkedin)](https://linkedin.com/company/skillbridge-india) 
+[![Twitter](https://img.shields.io/badge/Twitter-Latest_News-1DA1F2?style=for-the-badge&logo=twitter)](https://twitter.com/skillbridge_in) 
 
 </div>
 
