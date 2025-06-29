@@ -159,18 +159,7 @@ By launch, we aim to achieve:
 - **Scalable Architecture**: Built to handle millions of users from day one
 - **Continuous Learning**: AI that gets smarter with every interaction
 
-## 🤝 Getting Involved
-
-We're building this in the open! While we're in early development, here's how you can get involved:
-
-### 🔜 For Developers
-```bash
-# This will work once we have something to show
-git clone https://github.com/mindovermattress/skillbridge-india.git
-cd skillbridge-india
-npm install && pip install -r requirements.txt
-npm run dev
-```
+We're building this in the open! While we're in early development !!
 
 ### 📊 For Beta Testing
 We're looking for early adopters! If you're:
