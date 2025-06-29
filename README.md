@@ -25,7 +25,7 @@ SkillBridge isn't just another job portal. It's an intelligent ecosystem that un
 - Dynamic skill assessments that adapt to user performance
 - Semantic job matching beyond keyword hunting
 - Personalized learning paths powered by machine learning
-- **AI Chatbot Assistant** - 24/7 career guidance and instant query resolution *(Coming Soon!)*
+- **🔥 AI Chatbot Assistant** *(Coming Soon!)* - 24/7 career guidance and instant query resolution
 
 ### 🌐 **Built for India**
 - Native support for 22 Indian languages *(Soon!)*
@@ -42,30 +42,17 @@ SkillBridge isn't just another job portal. It's an intelligent ecosystem that un
 
 ## 👨‍💻 The Team
 
-<table>
-<tr>
-<td align="center">
-<img src="https://via.placeholder.com/100x100?text=PR" alt="Pranav" width="80" height="80" style="border-radius: 50%"><br>
-<strong>Pranav Rana</strong><br>
-<em>Lead AI Engineer & Frontend Development</em><br>
-<small>Makes machines think and builds beautiful interfaces</small>
-</td>
-<td align="center">
-<img src="https://via.placeholder.com/100x100?text=PRA" alt="Pratyush R" width="80" height="80" style="border-radius: 50%"><br>
-<strong>Pratyush Rawat</strong><br>
-<em>ML Research Specialist & Backend Development</em><br>
-<small>Turns data into insights and builds robust systems</small>
-</td>
-</tr>
-<tr>
-<td align="center" colspan="2">
-<img src="https://via.placeholder.com/100x100?text=PS" alt="Pratyush S" width="80" height="80" style="border-radius: 50%"><br>
-<strong>Pratyush Shankar</strong><br>
-<em>Blockchain & Full Stack Integration</em><br>
-<small>Builds the pipes that connect everything securely and keeps it all running</small>
-</td>
-</tr>
-</table>
+**Pranav Rana**  
+*Lead AI Engineer & Frontend Development*  
+Makes machines think and builds beautiful interfaces
+
+**Pratyush Rawat**  
+*ML Research Specialist & Backend Development*  
+Turns data into insights and builds robust systems
+
+**Pratyush Shankar**  
+*Blockchain & Full Stack Integration*  
+Builds the pipes that connect everything securely and keeps it all running
 
 ## 🛠️ Tech Stack
 
