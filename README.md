@@ -129,7 +129,7 @@ SkillBridge isn't just another job portal. It's an intelligent ecosystem that un
 - 🔮 Personalized learning paths
 - 🔮 Computer vision assessments
 
-### **Phase 4: Scale & Innovation (2026)**
+### **Phase 4: Scale & Innovation (2026 - after funding)**
 - 🔮 Multi-language support rollout
 - 🔮 Blockchain credential system
 - 🔮 Rural network expansion
@@ -139,7 +139,7 @@ SkillBridge isn't just another job portal. It's an intelligent ecosystem that un
 
 By launch, we aim to achieve:
 
-<div align="center">
+<div>
 
 | Metric | Target | Impact Area |
 |--------|--------|-------------|
