@@ -24,7 +24,7 @@ SkillBridge isn't just another job portal. It's an intelligent ecosystem that un
 - Personalized learning paths powered by machine learning
 
 ### 🌐 **Built for India**
-- Native support for 22 Indian languages
+- Native support for 22 Indian languages (soon!)
 - Rural employment network integration
 - Cultural context awareness in matching algorithms
 
