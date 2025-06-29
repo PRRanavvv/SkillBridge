@@ -4,7 +4,7 @@
 
 <div align="center">
 
-[![Made with ❤️ for India](https://img.shields.io/badge/Made%20with-%E2%9D%A4%EF%B8%8F-red?style=for-the-badge)](#)
+[![Made with ☕ for India](https://img.shields.io/badge/Made%20with-%E2%9D%A4%EF%B8%8F-red?style=for-the-badge)](#)
 [![Status](https://img.shields.io/badge/Status-In%20Development-yellow?style=for-the-badge)](#)
 
 ## Team - Mind Over Mattress
