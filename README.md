@@ -6,7 +6,6 @@
 
 [![Made with ❤️ for India](https://img.shields.io/badge/Made%20with-%E2%9D%A4%EF%B8%8F-red?style=for-the-badge)](#)
 [![Status](https://img.shields.io/badge/Status-In%20Development-yellow?style=for-the-badge)](#)
-[![Team](https://img.shields.io/badge/Team-Mind%20Over%20Mattress-blue?style=for-the-badge)](#)
 
 ## Team - Mind Over Mattress
 
@@ -26,7 +25,7 @@ SkillBridge isn't just another job portal. It's an intelligent ecosystem that un
 - Dynamic skill assessments that adapt to user performance
 - Semantic job matching beyond keyword hunting
 - Personalized learning paths powered by machine learning
-- **🔥 AI Chatbot Assistant** *(Coming Soon!)* - 24/7 career guidance and instant query resolution
+- **AI Chatbot Assistant** - 24/7 career guidance and instant query resolution *(Coming Soon!)*
 
 ### 🌐 **Built for India**
 - Native support for 22 Indian languages *(Soon!)*
